@@ -35,6 +35,7 @@
   .video .tools{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center}
   .video .tools .btn{background:rgba(34,40,53,.9)}
   .video .tools .msg{font-size:11px;color:var(--warn);background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
+  .video .tools label.muted{background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px;color:var(--fg);font-size:11px;cursor:pointer}
   .btn.rec{border-color:var(--bad);color:var(--bad)}
   .btn.rec .blink{animation:blink 1s steps(2,start) infinite}
   @keyframes blink{to{visibility:hidden}}
@@ -67,16 +68,16 @@
   .tbl td.bad{color:var(--bad)}
   .scroll{overflow:auto;margin-top:4px;border:1px solid var(--line);border-radius:8px}
   .scroll .tbl thead th{position:sticky;top:0;background:var(--panel);z-index:1}
-  /* tabel rapat saat sedikit, scroll saat banyak; video di baris atas tidak terpengaruh */
-  .scroll.tracks{max-height:150px}
-  .scroll.geo{max-height:96px}
+  /* tinggi tabel DIKUNCI (bukan max-height): jumlah baris berubah tiap frame -> isi scroll, kartu lain tidak bergeser */
+  .scroll.tracks{height:150px}
+  .scroll.geo{height:96px}
   /* layar pendek (laptop 768p): mode kompak supaya tetap pas satu layar */
   @media (max-height:820px){
     main{gap:8px;padding:8px} .col{gap:8px}
     .card{padding:6px 10px} .card h2{margin-bottom:4px;font-size:11px}
     .t{padding:3px 6px} .t .v{font-size:13px} .t .k{font-size:10px}
     .grid{grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:4px}
-    .scroll.tracks{max-height:96px} .scroll.geo{max-height:60px}
+    .scroll.tracks{height:96px} .scroll.geo{height:60px}
     .hint{display:none} .row{gap:6px} .btn,.inp{padding:3px 7px;font-size:11px} .tbl{font-size:11px}
     .tbl td,.tbl th{padding:2px 6px} .dets{height:20px} .dets span{font-size:11px;padding:1px 6px}
   }
@@ -102,7 +103,8 @@
       <div class="tools">
         <span class="msg" id="rec-msg" hidden></span>
         <a class="btn" id="rec-dl" href="#" download hidden title="Unduh rekaman terakhir">💾 Rekaman</a>
-        <button class="btn" id="rec" title="Rekam video yang tampil (termasuk kotak deteksi) ke folder recordings/">⏺ Rekam</button>
+        <label class="muted" id="rec-raw-lbl" title="Rekam video polos: tanpa kotak deteksi, label, dan tag sinyal hilang"><input type="checkbox" id="rec-raw"> tanpa kotak</label>
+        <button class="btn" id="rec" title="Rekam video ke folder recordings/">⏺ Rekam</button>
         <a class="btn" href="/snapshot" target="_blank">📷 Snapshot</a>
       </div>
     </div>
@@ -395,7 +397,8 @@ function renderGeo(g, dets){
   const tb = $("g-tbl").querySelector("tbody");
   objLayer.clearLayers();
   if (!dets.length) { tb.innerHTML = '<tr><td colspan="8" class="muted">tidak ada objek</td></tr>'; return; }
-  tb.innerHTML = dets.map((d, i) => {
+  const rows = dets.map((d, i) => ({d, i})).sort((a, b) => (a.d.track_id || 1e9 + a.i) - (b.d.track_id || 1e9 + b.i));
+  tb.innerHTML = rows.map(({d, i}) => {
     const q = d.geo;
     const id = d.track_id ? "#" + d.track_id : i+1;
     if (!q) return `<tr><td>${id}</td><td>${d.label}</td><td>${d.conf}</td><td colspan="5" class="muted">model tanpa geolokasi</td></tr>`;
@@ -456,14 +459,18 @@ function renderTracks(tr){
 let lastConn = null;
 // ---- rekam video (server menulis file di recordings/) ----
 let recOn = false;
-$("rec").onclick = () => { $("rec-msg").hidden = true; send({cmd: recOn ? "rec_stop" : "rec_start"}); };
+$("rec").onclick = () => {
+  $("rec-msg").hidden = true;
+  send(recOn ? {cmd:"rec_stop"} : {cmd:"rec_start", overlay: !$("rec-raw").checked});
+};
 const mmss = sec => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 function renderRec(r){
   if (!r) return;
   recOn = r.on;
   const b = $("rec");
   b.className = "btn" + (r.on ? " rec" : "");
-  b.innerHTML = r.on ? `<span class="blink">⏺</span> Stop ${mmss(r.sec)} <span class="muted">${r.size_mb} MB</span>` : "⏺ Rekam";
+  b.innerHTML = r.on ? `<span class="blink">⏺</span> Stop ${mmss(r.sec)} <span class="muted">${r.size_mb} MB${r.overlay === false ? " · polos" : ""}</span>` : "⏺ Rekam";
+  $("rec-raw-lbl").hidden = r.on;   // pilihan hanya sebelum mulai; saat merekam tampil di tombol
   const dl = $("rec-dl");
   dl.hidden = !r.last_file || r.on;
   if (r.last_file) { dl.href = "/recordings/" + encodeURIComponent(r.last_file); dl.title = "Unduh " + r.last_file; }

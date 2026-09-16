@@ -250,10 +250,12 @@ class Recorder(threading.Thread):
     # tidak membawa OpenH264 -> mencobanya hanya mencetak error. File .mp4 mp4v diputar VLC / Windows Media Player.
     CODECS = (("mp4v", ".mp4"), ("XVID", ".avi"))
 
-    def __init__(self, video, directory, fps=25.0, prefix="rekaman"):
+    def __init__(self, video, directory, fps=25.0, overlay=True):
         super().__init__(daemon=True, name="recorder")
         self.video = video
         self.directory = directory
+        self.overlay = overlay     # False = video polos tanpa kotak deteksi / tag sinyal
+        prefix = "rekaman" if overlay else "rekaman_polos"
         self.fps = float(fps) if fps and fps > 1 else 25.0
         self.session = time.strftime("%Y%m%d_%H%M%S")
         self.prefix = prefix
@@ -291,7 +293,8 @@ class Recorder(threading.Thread):
         wr = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc), self.fps, (w, h))
         if wr.isOpened():
             self.path = path
-            print(f"[rec] mulai {path} ({w}x{h} @ {self.fps:.0f} fps, codec {fourcc})")
+            print(f"[rec] mulai {path} ({w}x{h} @ {self.fps:.0f} fps, codec {fourcc}, "
+                  f"{'dengan' if self.overlay else 'tanpa'} overlay)")
             return wr
         wr.release()
         try:
@@ -308,7 +311,7 @@ class Recorder(threading.Thread):
         nxt = time.perf_counter()
         size = None
         while not self._stop.is_set():
-            frame = self.video.latest_frame()
+            frame = self.video.latest_frame(self.overlay)
             if frame is not None:
                 h, w = frame.shape[:2]
                 if self._writer is None:
@@ -351,6 +354,7 @@ class VideoSource(threading.Thread):
         self._raw_seq = 0      # naik hanya saat ada frame bagus baru -> analyzer tidak mengulang frame tahan
         self._jpeg = None      # bytes JPEG frame terakhir + overlay (untuk browser)
         self._frame = None     # ndarray BGR frame terakhir + overlay (untuk recorder)
+        self._clean = None     # frame yang sama TANPA overlay/tag (untuk recorder tanpa kotak deteksi)
         self._seq = 0
         self._stop = threading.Event()
         self._last_good = None
@@ -385,10 +389,13 @@ class VideoSource(threading.Thread):
         with self._lock:
             return self._jpeg
 
-    def latest_frame(self):
-        """Frame BGR terakhir persis seperti yang tampil di browser (overlay + tag sinyal hilang)."""
+    def latest_frame(self, overlay=True):
+        """
+        Frame BGR terakhir. overlay=True: persis seperti di browser (kotak deteksi + tag sinyal hilang).
+        overlay=False: frame yang sama tanpa gambar apa pun (saat sinyal hilang tetap frame tahan terakhir).
+        """
         with self._lock:
-            return self._frame
+            return self._frame if overlay else self._clean
 
     def stop(self):
         self._stop.set()
@@ -482,6 +489,7 @@ class VideoSource(threading.Thread):
                     self._raw_seq += 1
                 self._jpeg = buf.tobytes()
                 self._frame = frame
+                self._clean = raw
                 self._seq += 1
                 self._cond.notify_all()
 

@@ -292,13 +292,13 @@ class RecManager:
         self.rec: Recorder = None
         self.last_file = None   # nama file rekaman terakhir yang selesai (untuk tombol unduh)
 
-    def start(self):
+    def start(self, overlay=True):
         if self.rec and self.rec.is_alive():
             return "sudah merekam"
         if not video.connected:
             return "video belum ada"
         # fps file = fps kamera terukur (VRX biasanya 25/30); kalau belum terukur pakai 25
-        self.rec = Recorder(video, REC_DIR, fps=video.fps or 25.0)
+        self.rec = Recorder(video, REC_DIR, fps=video.fps or 25.0, overlay=overlay)
         self.rec.start()
         return "ok"
 
@@ -319,6 +319,7 @@ class RecManager:
         r = self.rec
         on = bool(r and r.is_alive())
         return {"on": on,
+                "overlay": r.overlay if on else None,
                 "file": r.filename if on else None,
                 "sec": round(r.seconds(), 1) if on else 0,
                 "size_mb": round(r.size_bytes() / 1e6, 1) if on else 0,
@@ -523,7 +524,9 @@ def handle_command(cmd: dict) -> dict:
       {"cmd":"track_set","radius_m":3,"lost_s":2,"expire_s":0}                  radius asosiasi objek
       {"cmd":"track_clear"}                                                      hapus semua objek terlacak
       {"cmd":"track_remove","id":3}                                              hapus satu objek
-      {"cmd":"rec_start"} / {"cmd":"rec_stop"}                                   rekam video tampilan ke recordings/
+      {"cmd":"rec_start","overlay":true}                                         rekam video ke recordings/
+      {"cmd":"rec_start","overlay":false}                                        ... tanpa kotak deteksi (video polos)
+      {"cmd":"rec_stop"}
     """
     c = cmd.get("cmd")
     if c == "connect":
@@ -553,7 +556,7 @@ def handle_command(cmd: dict) -> dict:
         ok = tracker.remove(int(cmd.get("id", 0)))
         return {"type": "ack", "cmd": c, "result": "ok" if ok else "id tidak ada"}
     if c == "rec_start":
-        return {"type": "ack", "cmd": c, "result": recorder.start()}
+        return {"type": "ack", "cmd": c, "result": recorder.start(overlay=bool(cmd.get("overlay", True)))}
     if c == "rec_stop":
         return {"type": "ack", "cmd": c, "result": recorder.stop()}
     return {"type": "ack", "cmd": c, "result": "perintah tidak dikenal"}
