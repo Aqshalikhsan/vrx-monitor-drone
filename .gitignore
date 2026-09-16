@@ -1,0 +1,13 @@
+# environment Python: besar & spesifik per device, dibuat ulang oleh run.bat
+.venv/
+__pycache__/
+*.pyc
+
+# log per sesi (tumbuh terus); arsipkan terpisah kalau perlu
+logs/
+
+# file sementara
+*.tmp
+*.log
+
+# ikut di git (jangan di-ignore): models/best.pt, config.json, tracks.json, CP210x_Universal_Windows_Driver/

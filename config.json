@@ -1,0 +1,27 @@
+{
+  "mav": "COM9",
+  "baud": 57600,
+  "hwid": "10C4:EA60:018AAE74",
+  "model": {
+    "path": "best.pt",
+    "conf": 0.85,
+    "imgsz": 416,
+    "enabled": true
+  },
+  "geo": {
+    "cam": {
+      "hfov": 110.0,
+      "vfov": null,
+      "tilt": 60.0,
+      "pan": 0.0,
+      "use_attitude": true,
+      "anchor": "bottom"
+    },
+    "manual": null
+  },
+  "track": {
+    "radius_m": 6.0,
+    "lost_s": 2.0,
+    "expire_s": 0.0
+  }
+}

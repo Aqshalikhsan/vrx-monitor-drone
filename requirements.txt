@@ -1,0 +1,13 @@
+# Paket inti (Python 3.10 - 3.13). Install: py -m pip install -r requirements.txt
+opencv-python>=4.9
+numpy>=1.26
+fastapi>=0.110
+uvicorn[standard]>=0.29
+websockets>=12
+pymavlink>=2.4.40
+pyserial>=3.5
+
+# Deteksi objek (.pt). ultralytics menarik torch versi CPU secara default.
+# Untuk GPU NVIDIA, install torch CUDA DULU sebelum baris ini (lihat setup.ps1 / README.md):
+#   py -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+ultralytics>=8.3

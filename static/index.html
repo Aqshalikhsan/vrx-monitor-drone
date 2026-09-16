@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Monitor</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --line:#262b36; --fg:#e6e8ee; --dim:#8b93a7;
+    --ok:#3ddc84; --warn:#ffb020; --bad:#ff5c5c; --acc:#4da3ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:var(--dim)}
+  .pill b{color:var(--fg);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}
+  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)}
+  .spacer{flex:1}
+  /* seluruh dashboard pas satu layar: 2 kolom setinggi viewport, video & peta menyerap sisa ruang */
+  main{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:10px;padding:10px;height:calc(100vh - 49px)}
+  .col{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0;overflow-y:auto}
+  .col > .card{flex:none}
+  .col > .video, .col > #map{flex:1 1 0;min-height:180px}
+  @media (max-width:900px){main{grid-template-columns:1fr;height:auto} .col > .video{aspect-ratio:4/3} .col > #map{height:300px}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:0}
+  .card h2{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);font-weight:600}
+  /* video */
+  .video{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;background:#000}
+  .video img{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:block}
+  .video .osd{position:absolute;left:10px;top:10px;font:12px ui-monospace,Consolas,monospace;color:var(--ok);background:rgba(0,0,0,.45);padding:4px 8px;border-radius:6px}
+  .video .osd.off{color:var(--bad)}
+  .video .btn{position:absolute;right:10px;top:10px}
+  .btn{background:#222835;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;text-decoration:none}
+  .btn:hover{border-color:var(--acc)}
+  /* map */
+  #map{border-radius:10px;border:1px solid var(--line)}
+  .leaflet-container{background:#0b0d12}
+  /* telemetry grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:6px}
+  .t{background:#12151b;border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  .t .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .t .v{font:600 16px/1.2 ui-monospace,Consolas,monospace;margin-top:2px;white-space:nowrap}
+  .t .u{font-size:11px;color:var(--dim);margin-left:3px;font-weight:400}
+  .t.wide{grid-column:span 2}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .dets{display:flex;flex-wrap:nowrap;gap:6px;margin-top:6px;height:24px;overflow-x:auto;overflow-y:hidden}
+  .oneline{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dets span{background:#1f3b2a;color:var(--ok);border-radius:6px;padding:2px 8px;font:12px ui-monospace,Consolas,monospace}
+  .muted{color:var(--dim);font-size:12px}
+  .inp{background:#12151b;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px}
+  .inp:focus{outline:none;border-color:var(--acc)}
+  .btn.on{border-color:var(--ok);color:var(--ok)}
+  .inp.num{width:64px;text-align:right}
+  label.muted{display:inline-flex;align-items:center;gap:4px}
+  .tbl{border-collapse:collapse;width:100%;font:12px ui-monospace,Consolas,monospace}
+  .tbl th{color:var(--dim);font-weight:600;text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);font-family:system-ui,sans-serif;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .tbl td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:0}
+  .tbl td.bad{color:var(--bad)}
+  .scroll{overflow:auto;margin-top:4px;border:1px solid var(--line);border-radius:8px}
+  .scroll .tbl thead th{position:sticky;top:0;background:var(--panel);z-index:1}
+  /* tabel rapat saat sedikit, scroll saat banyak; video di baris atas tidak terpengaruh */
+  .scroll.tracks{max-height:150px}
+  .scroll.geo{max-height:96px}
+  /* layar pendek (laptop 768p): mode kompak supaya tetap pas satu layar */
+  @media (max-height:820px){
+    main{gap:8px;padding:8px} .col{gap:8px}
+    .card{padding:6px 10px} .card h2{margin-bottom:4px;font-size:11px}
+    .t{padding:3px 6px} .t .v{font-size:13px} .t .k{font-size:10px}
+    .grid{grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:4px}
+    .scroll.tracks{max-height:96px} .scroll.geo{max-height:60px}
+    .hint{display:none} .row{gap:6px} .btn,.inp{padding:3px 7px;font-size:11px} .tbl{font-size:11px}
+    .tbl td,.tbl th{padding:2px 6px} .dets{height:20px} .dets span{font-size:11px;padding:1px 6px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Drone Monitor</h1>
+  <span class="pill"><span class="dot" id="d-link"></span>MAVLink <b id="v-link">-</b></span>
+  <span class="pill"><span class="dot" id="d-video"></span>VRX <b id="v-video">-</b></span>
+  <span class="pill"><span class="dot" id="d-model"></span>Model <b id="v-model">-</b></span>
+  <span class="spacer"></span>
+  <span class="pill">Mode <b id="v-mode">-</b></span>
+  <span class="pill" id="p-armed"><span class="dot" id="d-armed"></span><b id="v-armed">DISARMED</b></span>
+  <span class="pill"><span class="dot" id="d-ws"></span>WS</span>
+</header>
+
+<main>
+  <div class="col">
+    <div class="card video">
+      <img id="video" src="/video" alt="VRX video">
+      <div class="osd" id="osd">menunggu video...</div>
+      <a class="btn" href="/snapshot" target="_blank">📷 Snapshot</a>
+    </div>
+    <div class="card fixed">
+      <h2>Model deteksi (best.pt)</h2>
+      <div class="row">
+        <select id="m-sel" class="inp"></select>
+        <button class="btn" id="m-refresh" title="Scan ulang folder models/">🔄</button>
+        <select id="m-imgsz" class="inp" title="Ukuran input model">
+          <option value="320">320</option><option value="416">416</option><option value="512">512</option>
+          <option value="640" selected>640</option><option value="960">960</option>
+        </select>
+        <button class="btn" id="m-load">▶ Load</button>
+        <button class="btn" id="m-off">⏹ Off</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="muted" for="m-conf" style="min-width:90px">Confidence <b id="m-conf-v">0.40</b></label>
+        <input type="range" id="m-conf" min="0.05" max="0.95" step="0.05" value="0.4" style="flex:1;min-width:120px;accent-color:var(--acc)">
+      </div>
+      <div class="muted oneline" style="margin-top:6px">
+        Status: <b id="m-stat">-</b> · <span id="m-dev">-</span> · Infer <b id="m-fps">0</b> fps · <b id="m-lat">0</b> ms
+      </div>
+      <div class="dets" id="dets"><span class="muted">tidak ada deteksi</span></div>
+    </div>
+    <div class="card fixed">
+      <h2>Objek terlacak <span class="muted" style="text-transform:none;letter-spacing:0">(tersimpan <b id="t-count">0</b>, terlihat sekarang <b id="t-active">0</b>, berlokasi <b id="t-located">0</b>)</span></h2>
+      <div class="row">
+        <label class="muted">Radius asosiasi <input id="t-radius" class="inp num" type="number" min="0.5" max="100" step="0.5" value="3"> m</label>
+        <label class="muted">Tanda "terlihat" bertahan <input id="t-lost" class="inp num" type="number" min="0.5" max="60" step="0.5" value="2"> s</label>
+        <input id="t-expire" type="hidden" value="0">
+        <button class="btn" id="t-clear">Hapus semua</button>
+        <a class="btn" href="/export/tracks.csv" download title="Unduh daftar objek terlacak sebagai CSV">Download CSV</a>
+      </div>
+      <div class="muted hint" style="margin-top:6px">Objek dicatat begitu terlihat dan ID-nya <b>dikunci</b>: deteksi dalam radius dari lokasi <b>pertama kali</b> (atau kotak yang berkesinambungan di video) = objek yang sama. Koordinat yang dilaporkan = lokasi pertama. Daftar tersimpan permanen (tracks.json) sampai dihapus manual.</div>
+      <div class="scroll tracks">
+        <table class="tbl" id="t-tbl">
+          <thead><tr><th>ID</th><th>Objek</th><th>Status</th><th>Latitude</th><th>Longitude</th><th>Terlihat</th><th>Geser</th><th>Conf maks</th><th>Pertama</th><th>Terakhir</th><th></th></tr></thead>
+          <tbody><tr><td colspan="11" class="muted">belum ada objek terlacak</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col">
+    <div id="map"></div>
+    <div class="card">
+      <h2>Koneksi telemetry</h2>
+      <div class="row">
+        <select id="src-type" class="inp">
+          <option value="serial">Serial / Radio (COM)</option>
+          <option value="udp">UDP (Mission Planner / SITL)</option>
+          <option value="tcp">TCP (SITL)</option>
+          <option value="sim">Simulasi</option>
+        </select>
+        <select id="port" class="inp"></select>
+        <button class="btn" id="refresh" title="Scan ulang COM port">🔄</button>
+        <select id="baud" class="inp">
+          <option>57600</option><option>115200</option><option>38400</option><option>9600</option><option>921600</option>
+        </select>
+        <input id="addr" class="inp" placeholder="0.0.0.0:14550" style="width:150px" hidden>
+        <button class="btn" id="connect">🔌 Connect</button>
+        <button class="btn" id="disconnect">⏏ Disconnect</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Status: <b id="tstat">-</b> <span id="tconn"></span></div>
+    </div>
+    <div class="card">
+      <h2>Telemetry & posisi</h2>
+      <div class="grid">
+        <div class="t wide"><div class="k">Latitude</div><div class="v" id="lat">-</div></div>
+        <div class="t wide"><div class="k">Longitude</div><div class="v" id="lon">-</div></div>
+        <div class="t"><div class="k">Alt (rel)</div><div class="v"><span id="alt_rel">-</span><span class="u">m</span></div></div>
+        <div class="t"><div class="k">Alt (MSL)</div><div class="v"><span id="alt_msl">-</span><span class="u">m</span></div></div>
+        <div class="t"><div class="k">Ground spd</div><div class="v"><span id="gs">-</span><span class="u">m/s</span></div></div>
+        <div class="t"><div class="k">Climb</div><div class="v"><span id="climb">-</span><span class="u">m/s</span></div></div>
+        <div class="t"><div class="k">Heading</div><div class="v"><span id="hdg">-</span><span class="u">°</span></div></div>
+        <div class="t"><div class="k">Throttle</div><div class="v"><span id="thr">-</span><span class="u">%</span></div></div>
+        <div class="t"><div class="k">GPS</div><div class="v"><span id="fix">-</span></div><div class="muted"><span id="sats">0</span> sat · HDOP <span id="hdop">-</span></div></div>
+        <div class="t"><div class="k">Baterai</div><div class="v"><span id="volt">-</span><span class="u">V</span></div><div class="muted"><span id="cur">-</span> A · <span id="pct">-</span>%</div></div>
+        <div class="t"><div class="k">Roll / Pitch</div><div class="v"><span id="roll">-</span>/<span id="pitch">-</span><span class="u">°</span></div></div>
+        <div class="t"><div class="k">MAVLink</div><div class="v"><span id="rate">0</span><span class="u">msg/s</span></div><div class="muted">sysid <span id="sysid">-</span></div></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <a class="btn" id="gmaps" href="#" target="_blank">🗺 Buka di Google Maps</a>
+        <button class="btn" id="copy">📋 Salin lat,lon</button>
+        <button class="btn" id="follow">🎯 Follow: ON</button>
+        <button class="btn" id="clear">🧹 Hapus jejak</button>
+        <a class="btn" href="/export/telemetry.csv" download title="Unduh log telemetry sesi ini (CSV)">Download CSV <span class="muted" id="log-telem">0</span></a>
+      </div>
+    </div>
+    <div class="card fixed">
+      <h2>Estimasi lokasi objek</h2>
+      <div class="row">
+        <label class="muted">HFOV <input id="g-hfov" class="inp num" type="number" min="10" max="175" step="1" value="110">°</label>
+        <label class="muted">Tilt <input id="g-tilt" class="inp num" type="number" min="-90" max="90" step="1" value="45">°</label>
+        <label class="muted">Pan <input id="g-pan" class="inp num" type="number" min="-180" max="180" step="1" value="0">°</label>
+        <label class="muted">Titik
+          <select id="g-anchor" class="inp"><option value="bottom">bawah kotak</option><option value="center">tengah kotak</option></select>
+        </label>
+        <label class="muted"><input type="checkbox" id="g-att" checked> kompensasi roll/pitch</label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="muted"><input type="checkbox" id="g-man"> pose manual (uji tanpa GPS)</label>
+        <span id="g-man-fields" hidden>
+          <input id="g-lat" class="inp num" style="width:110px" placeholder="lat" value="-6.2">
+          <input id="g-lon" class="inp num" style="width:110px" placeholder="lon" value="106.8">
+          <input id="g-alt" class="inp num" style="width:60px" placeholder="alt m" value="50">
+          <input id="g-hdg" class="inp num" style="width:60px" placeholder="hdg" value="0">
+          <button class="btn" id="g-man-apply">Terapkan</button>
+        </span>
+      </div>
+      <div class="row" style="margin-top:6px;justify-content:space-between">
+        <span class="muted oneline" style="flex:1;min-width:0">Pose: <span id="g-pose">-</span></span>
+        <a class="btn" href="/export/estimates.csv" download title="Unduh log estimasi lokasi tiap deteksi sesi ini (CSV)">Download CSV <span class="muted" id="log-est">0</span></a>
+      </div>
+      <div class="scroll geo">
+        <table class="tbl" id="g-tbl">
+          <thead><tr><th>ID</th><th>Objek</th><th>Conf</th><th>Jarak</th><th>Arah</th><th>Latitude</th><th>Longitude</th><th>±</th></tr></thead>
+          <tbody><tr><td colspan="8" class="muted">tidak ada objek</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (v, d=1) => (v === null || v === undefined) ? "-" : Number(v).toFixed(d);
+
+// ---------- peta ----------
+const map = L.map("map", {zoomControl:true}).setView([-6.2, 106.8], 13);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+const droneIcon = L.divIcon({className:"", iconSize:[28,28], iconAnchor:[14,14],
+  html:'<div id="drone-ic" style="width:28px;height:28px;transform-origin:50% 50%">'+
+       '<svg viewBox="0 0 24 24" width="28" height="28"><path d="M12 2 L19 20 L12 16 L5 20 Z" fill="#4da3ff" stroke="#fff" stroke-width="1.2"/></svg></div>'});
+const marker = L.marker([0,0], {icon:droneIcon}).addTo(map);
+const track = L.polyline([], {color:"#4da3ff", weight:3, opacity:.8}).addTo(map);
+let follow = true, firstFix = true, lastPt = null;
+$("follow").onclick = () => { follow = !follow; $("follow").textContent = "🎯 Follow: " + (follow ? "ON" : "OFF"); };
+$("clear").onclick = () => track.setLatLngs([]);
+map.on("dragstart", () => { follow = false; $("follow").textContent = "🎯 Follow: OFF"; });
+window.addEventListener("resize", () => map.invalidateSize());
+setTimeout(() => map.invalidateSize(), 100);
+
+function updateMap(lat, lon, hdg){
+  if (lat === null || lon === null || (lat === 0 && lon === 0)) return;
+  const p = [lat, lon];
+  marker.setLatLng(p);
+  const ic = document.getElementById("drone-ic");
+  if (ic && hdg !== null) ic.style.transform = `rotate(${hdg}deg)`;
+  if (!lastPt || map.distance(lastPt, p) > 0.5) { track.addLatLng(p); lastPt = p; }
+  if (firstFix) { map.setView(p, 17); firstFix = false; }
+  else if (follow) map.panTo(p, {animate:false});
+}
+
+// ---------- posisi ----------
+let curLat = null, curLon = null;
+$("copy").onclick = () => { if (curLat !== null) navigator.clipboard.writeText(`${curLat.toFixed(7)},${curLon.toFixed(7)}`); };
+
+// ---------- WebSocket ----------
+function setDot(id, state){ const d = $(id); d.className = "dot " + (state === true ? "ok" : state === "warn" ? "warn" : ""); }
+
+// ---------- koneksi telemetry (adaptif, lewat WebSocket) ----------
+let ws = null;
+const send = obj => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+
+function updateSrcUI(){
+  const t = $("src-type").value;
+  $("port").hidden = $("refresh").hidden = (t !== "serial");
+  $("baud").hidden = (t !== "serial") || $("port").value === "auto";
+  $("addr").hidden = !(t === "udp" || t === "tcp");
+  $("addr").placeholder = t === "udp" ? "0.0.0.0:14550" : "127.0.0.1:5760";
+}
+$("src-type").onchange = updateSrcUI;
+$("refresh").onclick = () => send({cmd:"ports"});
+$("connect").onclick = () => {
+  const t = $("src-type").value;
+  let conn;
+  if (t === "serial") conn = $("port").value;
+  else if (t === "udp") conn = "udpin:" + ($("addr").value || "0.0.0.0:14550");
+  else if (t === "tcp") conn = "tcp:" + ($("addr").value || "127.0.0.1:5760");
+  else conn = "sim";
+  if (!conn) { alert("Tidak ada COM port. Colok radio/FC lalu klik 🔄."); return; }
+  $("tstat").textContent = "menghubungkan...";
+  send({cmd:"connect", conn, baud: parseInt($("baud").value)});
+};
+$("disconnect").onclick = () => send({cmd:"disconnect"});
+
+function fillPorts(ports){
+  const sel = $("port"), cur = sel.value || "auto";
+  sel.innerHTML = '<option value="auto">Auto: cari radio/FC di COM manapun</option>' +
+    ports.map(p => `<option value="${p.device}">${p.device} (${p.desc})${p.known ? " ✓" : ""}</option>`).join("");
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : "auto";
+  $("baud").hidden = $("src-type").value !== "serial" || sel.value === "auto";
+}
+$("port").onchange = () => { $("baud").hidden = $("port").value === "auto"; };
+
+// ---------- model (lewat WebSocket) ----------
+let confTimer = null, confDragging = false, lastModelPath = undefined;
+$("m-conf").oninput = () => {
+  confDragging = true;
+  $("m-conf-v").textContent = Number($("m-conf").value).toFixed(2);
+  clearTimeout(confTimer);   // kirim setelah slider berhenti 150 ms, bukan tiap piksel
+  confTimer = setTimeout(() => { send({cmd:"model_set", conf: parseFloat($("m-conf").value)}); confDragging = false; }, 150);
+};
+$("m-imgsz").onchange = () => send({cmd:"model_set", imgsz: parseInt($("m-imgsz").value)});
+$("m-refresh").onclick = () => send({cmd:"models"});
+$("m-load").onclick = () => {
+  const path = $("m-sel").value;
+  if (!path) { alert("Tidak ada model di folder models/. Salin best.pt ke sana lalu klik 🔄."); return; }
+  $("m-stat").textContent = "loading...";
+  send({cmd:"model_load", path, conf: parseFloat($("m-conf").value), imgsz: parseInt($("m-imgsz").value)});
+};
+$("m-off").onclick = () => send({cmd:"model_off"});
+
+function fillModels(models){
+  const sel = $("m-sel"), cur = sel.value;
+  sel.innerHTML = models.length
+    ? models.map(m => `<option value="${m}">${m}</option>`).join("")
+    : '<option value="">(tidak ada model di models/)</option>';
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  else if (lastModelPath && [...sel.options].some(o => o.value === lastModelPath)) sel.value = lastModelPath;
+}
+
+function renderModel(m){
+  const st = m.status || "off";
+  $("m-stat").textContent = st;
+  $("m-stat").style.color = st === "ready" ? "var(--ok)" : st.startsWith("error") ? "var(--bad)" : st === "loading" ? "var(--warn)" : "var(--dim)";
+  $("m-dev").textContent = m.loaded ? `${m.path} @ ${m.device}` : (m.path ? m.path : "models/best.pt");
+  $("m-fps").textContent = m.fps; $("m-lat").textContent = m.latency_ms;
+  $("m-load").classList.toggle("on", st === "ready");
+  // sinkronkan kontrol dengan server (saat halaman dibuka / diubah dari tab lain), jangan ganggu slider yang sedang digeser
+  if (!confDragging && Math.abs(parseFloat($("m-conf").value) - m.conf) > 0.001) {
+    $("m-conf").value = m.conf; $("m-conf-v").textContent = Number(m.conf).toFixed(2);
+  }
+  if (document.activeElement !== $("m-imgsz") && String(m.imgsz) !== $("m-imgsz").value) {
+    if ([...$("m-imgsz").options].some(o => o.value === String(m.imgsz))) $("m-imgsz").value = String(m.imgsz);
+  }
+  if (m.path !== lastModelPath) {
+    lastModelPath = m.path;
+    if (m.path && [...$("m-sel").options].some(o => o.value === m.path)) $("m-sel").value = m.path;
+  }
+  const dets = $("dets");
+  if (m.detections.length) {
+    const count = {}; m.detections.forEach(d => count[d.label] = (count[d.label]||0)+1);
+    dets.innerHTML = Object.entries(count).map(([k,n]) => `<span>${k} ×${n}</span>`).join("");
+  } else dets.innerHTML = `<span class="muted">${m.loaded ? "tidak ada deteksi" : "model off"}</span>`;
+}
+
+// ---------- estimasi lokasi objek ----------
+const objLayer = L.layerGroup().addTo(map);
+let geoSynced = false, geoTimer = null, geoEditing = false;
+
+function sendGeo(extra){
+  const msg = {cmd:"geo_set",
+    hfov: parseFloat($("g-hfov").value), tilt: parseFloat($("g-tilt").value), pan: parseFloat($("g-pan").value),
+    anchor: $("g-anchor").value, use_attitude: $("g-att").checked, ...extra};
+  send(msg);
+}
+["g-hfov","g-tilt","g-pan"].forEach(id => {
+  $(id).onfocus = () => geoEditing = true;
+  $(id).onblur  = () => geoEditing = false;
+  $(id).oninput = () => { clearTimeout(geoTimer); geoTimer = setTimeout(() => sendGeo(), 300); };
+});
+$("g-anchor").onchange = () => sendGeo();
+$("g-att").onchange = () => sendGeo();
+$("g-man").onchange = () => {
+  $("g-man-fields").hidden = !$("g-man").checked;
+  if (!$("g-man").checked) sendGeo({manual:null});
+};
+$("g-man-apply").onclick = () => sendGeo({manual:{lat:$("g-lat").value, lon:$("g-lon").value, alt:$("g-alt").value, heading:$("g-hdg").value}});
+
+const objIcon = L.divIcon({className:"", iconSize:[14,14], iconAnchor:[7,7],
+  html:'<div style="width:14px;height:14px;border-radius:50%;background:#ff5c5c;border:2px solid #fff;box-shadow:0 0 6px #000"></div>'});
+
+function renderGeo(g, dets){
+  // sinkronkan kontrol dengan server sekali saat halaman dibuka (dan saat tidak sedang diedit)
+  if (!geoSynced && g.cam) {
+    $("g-hfov").value = g.cam.hfov; $("g-tilt").value = g.cam.tilt; $("g-pan").value = g.cam.pan;
+    $("g-anchor").value = g.cam.anchor; $("g-att").checked = g.cam.use_attitude;
+    if (g.manual) { $("g-man").checked = true; $("g-man-fields").hidden = false;
+      $("g-lat").value = g.manual.lat; $("g-lon").value = g.manual.lon; $("g-alt").value = g.manual.alt; $("g-hdg").value = g.manual.heading; }
+    geoSynced = true;
+  }
+  const p = g.pose || {};
+  $("g-pose").textContent = (p.lat === null || p.lat === undefined)
+    ? `tidak ada posisi GPS (${p.source || "-"})`
+    : `${p.source}  lat ${fmt(p.lat,6)}  lon ${fmt(p.lon,6)}  alt ${fmt(p.alt,1)} m  hdg ${fmt(p.heading,0)}°  roll ${fmt(p.roll,0)}°  pitch ${fmt(p.pitch,0)}°`;
+
+  const tb = $("g-tbl").querySelector("tbody");
+  objLayer.clearLayers();
+  if (!dets.length) { tb.innerHTML = '<tr><td colspan="8" class="muted">tidak ada objek</td></tr>'; return; }
+  tb.innerHTML = dets.map((d, i) => {
+    const q = d.geo;
+    const id = d.track_id ? "#" + d.track_id : i+1;
+    if (!q) return `<tr><td>${id}</td><td>${d.label}</td><td>${d.conf}</td><td colspan="5" class="muted">model tanpa geolokasi</td></tr>`;
+    if (!q.ok) return `<tr><td>${id}</td><td>${d.label}</td><td>${d.conf}</td><td colspan="5" class="bad">${q.reason}</td></tr>`;
+    L.marker([q.lat, q.lon], {icon:objIcon}).addTo(objLayer)
+      .bindTooltip(`${d.label} ${d.conf} · ${q.dist} m · ${q.lat.toFixed(6)}, ${q.lon.toFixed(6)}`, {direction:"top"});
+    return `<tr><td>${id}</td><td>${d.label}</td><td>${d.conf}</td><td>${q.dist} m</td><td>${q.bearing}°</td>
+      <td>${q.lat.toFixed(7)}</td><td>${q.lon.toFixed(7)}</td><td title="perkiraan error untuk 1° kesalahan sudut">${q.err_m} m</td></tr>`;
+  }).join("");
+}
+
+// ---------- objek terlacak ----------
+const trackLayer = L.layerGroup().addTo(map);
+const trackMarkers = {};   // id -> {marker, status}
+let trackSynced = false, trackTimer = null;
+["t-radius","t-lost","t-expire"].forEach(id => {
+  $(id).oninput = () => { clearTimeout(trackTimer); trackTimer = setTimeout(() =>
+    send({cmd:"track_set", radius_m: parseFloat($("t-radius").value), lost_s: parseFloat($("t-lost").value), expire_s: parseFloat($("t-expire").value)}), 300); };
+});
+$("t-clear").onclick = () => { if (confirm("Hapus semua objek terlacak?")) send({cmd:"track_clear"}); };
+
+function trackIcon(id, status){
+  const bg = status === "seen" ? "#ffb020" : "#e0a020";
+  return L.divIcon({className:"", iconSize:[24,24], iconAnchor:[12,12],
+    html:`<div style="width:24px;height:24px;border-radius:50%;background:${bg};border:2px solid #fff;box-shadow:0 0 6px #000;color:#000;font:700 11px/20px system-ui;text-align:center">${id}</div>`});
+}
+const hhmmss = ts => new Date(ts*1000).toLocaleTimeString("id-ID", {hour12:false});
+const fmtAge = s => s < 60 ? `${s.toFixed(0)} s lalu` : s < 3600 ? `${Math.floor(s/60)} mnt lalu` : `${Math.floor(s/3600)} jam lalu`;
+function removeTrack(id){ if (confirm(`Hapus objek #${id}?`)) send({cmd:"track_remove", id}); }
+
+function renderTracks(tr){
+  if (!tr) return;
+  if (!trackSynced) { $("t-radius").value = tr.radius_m; $("t-lost").value = tr.lost_s; $("t-expire").value = tr.expire_s; trackSynced = true; }
+  $("t-count").textContent = tr.count; $("t-active").textContent = tr.active; $("t-located").textContent = tr.located;
+  // marker: tambah/ubah warna, hapus yang sudah tidak ada
+  const seen = new Set();
+  tr.tracks.forEach(t => {
+    if (t.lat === null) return;               // belum punya lokasi -> belum bisa di peta
+    seen.add(t.id);
+    const tip = `#${t.id} ${t.label} · ${t.status === "seen" ? "terlihat" : "terkunci"} · ${t.lat.toFixed(6)}, ${t.lon.toFixed(6)} · ${t.hits}x`;
+    let m = trackMarkers[t.id];
+    if (!m) { m = trackMarkers[t.id] = {marker: L.marker([t.lat, t.lon], {icon: trackIcon(t.id, t.status)}).addTo(trackLayer).bindTooltip(tip, {direction:"top"}), status: t.status}; }
+    else { if (m.status !== t.status) { m.marker.setIcon(trackIcon(t.id, t.status)); m.status = t.status; } m.marker.setTooltipContent(tip); }
+  });
+  Object.keys(trackMarkers).forEach(id => { if (!seen.has(+id)) { trackLayer.removeLayer(trackMarkers[id].marker); delete trackMarkers[id]; } });
+
+  const tb = $("t-tbl").querySelector("tbody");
+  if (!tr.tracks.length) { tb.innerHTML = '<tr><td colspan="11" class="muted">belum ada objek terlacak</td></tr>'; return; }
+  tb.innerHTML = tr.tracks.map(t => `<tr>
+    <td><b>#${t.id}</b></td><td>${t.label}</td>
+    <td style="color:${t.status === "seen" ? "var(--ok)" : "var(--warn)"}">${t.status === "seen" ? "terlihat" : "terkunci · " + fmtAge(t.since_s)}</td>
+    <td>${t.lat === null ? '<span class="muted">belum ada</span>' : t.lat.toFixed(7)}</td><td>${t.lon === null ? '<span class="muted">GPS</span>' : t.lon.toFixed(7)}</td><td>${t.hits}x</td>
+    <td title="geser terakhir / maksimum dari lokasi pertama">${t.lat === null ? "-" : t.moved_m + " / " + t.max_moved_m + " m"}</td>
+    <td>${t.max_conf}</td><td>${hhmmss(t.first_seen)}</td><td>${hhmmss(t.last_seen)}</td>
+    <td><button class="btn" style="padding:1px 6px" onclick="removeTrack(${t.id})" title="hapus objek ini">x</button></td></tr>`).join("");
+}
+
+let lastConn = null;
+function renderTelemetryConn(t){
+  const st = t.status || "disconnected";
+  $("tstat").textContent = st === "waiting" ? "menunggu radio/FC dicolok..." : st;
+  $("tstat").style.color = st === "connected" ? "var(--ok)" : st.startsWith("error") ? "var(--bad)" : st === "waiting" ? "var(--warn)" : "var(--dim)";
+  let info = "";
+  if (t.conn === "auto") info = t.resolved ? `(auto → ${t.resolved} @ ${t.resolved_baud})` : "(auto)";
+  else if (t.conn) info = `(${t.conn}${t.conn.match(/^COM|^\/dev/) ? " @ " + t.baud : ""})`;
+  $("tconn").textContent = info;
+  $("connect").classList.toggle("on", st === "connected");
+  // sinkronkan form dengan koneksi aktif saat halaman pertama dibuka / diganti dari tab lain
+  if (t.conn && t.conn !== lastConn) {
+    lastConn = t.conn;
+    if (t.conn === "sim") $("src-type").value = "sim";
+    else if (t.conn === "auto") { $("src-type").value = "serial"; $("port").value = "auto"; }
+    else if (t.conn.startsWith("udp")) { $("src-type").value = "udp"; $("addr").value = t.conn.replace(/^udp(in|out)?:/, ""); }
+    else if (t.conn.startsWith("tcp")) { $("src-type").value = "tcp"; $("addr").value = t.conn.replace(/^tcp:/, ""); }
+    else { $("src-type").value = "serial"; $("baud").value = t.baud; $("port").value = t.conn; }
+    updateSrcUI();
+  }
+}
+
+function render(s){
+  renderTelemetryConn(s.telemetry || {});
+  setDot("d-link", s.link); $("v-link").textContent = s.link ? "OK" : "putus";
+  const sigLost = s.video.connected && s.video.signal === false;
+  setDot("d-video", sigLost ? "warn" : s.video.connected);
+  $("v-video").textContent = !s.video.connected ? "tidak ada" : sigLost ? `SINYAL HILANG ${s.video.lost_s}s` : `${s.video.size} @ ${s.video.fps} fps`;
+  setDot("d-model", s.model.loaded ? true : (s.model.path ? "warn" : false));
+  $("v-model").textContent = s.model.loaded ? `${s.model.fps} fps` : "off";
+  $("v-mode").textContent = s.mode;
+  $("v-armed").textContent = s.armed ? "ARMED" : "DISARMED"; setDot("d-armed", s.armed ? "warn" : false);
+
+  const osd = $("osd");
+  osd.className = "osd " + (!s.video.connected || sigLost ? "off" : "");
+  osd.textContent = !s.video.connected ? "VRX tidak terdeteksi"
+    : sigLost ? `SINYAL HILANG ${s.video.lost_s} s  (menampilkan frame terakhir)`
+    : `${s.video.size}  ${s.video.fps} fps` + (s.model.loaded ? `  |  model ${s.model.fps} fps ${s.model.latency_ms} ms` : "");
+
+  renderModel(s.model);
+  renderGeo(s.geo || {}, s.model.detections || []);
+  renderTracks(s.tracks);
+  if (s.logs) { $("log-telem").textContent = s.logs.telemetry_rows; $("log-est").textContent = s.logs.estimate_rows; }
+
+  if (s.fix_type < 2 || (s.lat === 0 && s.lon === 0)) s.lat = s.lon = null;  // belum ada fix GPS
+  curLat = s.lat; curLon = s.lon;
+  $("lat").textContent = fmt(s.lat, 7); $("lon").textContent = fmt(s.lon, 7);
+  $("gmaps").href = s.lat !== null ? `https://www.google.com/maps?q=${s.lat},${s.lon}` : "#";
+  updateMap(s.lat, s.lon, s.heading);
+
+  $("alt_rel").textContent = fmt(s.alt_rel); $("alt_msl").textContent = fmt(s.alt_msl);
+  $("gs").textContent = fmt(s.groundspeed); $("climb").textContent = fmt(s.climb);
+  $("hdg").textContent = fmt(s.heading, 0); $("thr").textContent = fmt(s.throttle, 0);
+  $("fix").textContent = s.fix_name; $("sats").textContent = s.sats; $("hdop").textContent = fmt(s.hdop, 2);
+  $("volt").textContent = fmt(s.volt, 2); $("cur").textContent = fmt(s.current); $("pct").textContent = s.batt_pct ?? "-";
+  $("roll").textContent = fmt(s.roll, 0); $("pitch").textContent = fmt(s.pitch, 0);
+  $("rate").textContent = fmt(s.msg_rate, 0); $("sysid").textContent = s.sysid ?? "-";
+}
+
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { setDot("d-ws", true); send({cmd:"ports"}); send({cmd:"models"}); };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "ports") fillPorts(m.ports);
+    else if (m.type === "models") fillModels(m.models);
+    else if (m.type === "ack") {
+      if (m.result !== "ok") {
+        const el = m.cmd.startsWith("model") ? $("m-stat") : m.cmd.startsWith("geo") ? $("g-pose") : m.cmd.startsWith("track") ? $("t-count") : $("tstat");
+        el.textContent = m.result;
+      }
+    }
+    else render(m);
+  };
+  ws.onclose = () => { setDot("d-ws", false); setTimeout(connect, 1000); };
+  ws.onerror = () => ws.close();
+}
+updateSrcUI();
+connect();
+
+// kalau stream MJPEG putus (server restart), sambung ulang
+$("video").onerror = () => setTimeout(() => { $("video").src = "/video?" + Date.now(); }, 1500);
+</script>
+</body>
+</html>

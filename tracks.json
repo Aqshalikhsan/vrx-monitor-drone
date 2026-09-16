@@ -1,0 +1,510 @@
+{
+ "next_id": 25,
+ "saved_at": 1789549121.7290184,
+ "tracks": [
+  {
+   "id": 1,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548443.1725242,
+   "last_seen": 1789548509.2874682,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 498,
+   "max_conf": 0.9462890625,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    368,
+    123,
+    640,
+    480
+   ],
+   "located_at": null
+  },
+  {
+   "id": 2,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548520.1542249,
+   "last_seen": 1789548524.5782073,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 70,
+   "max_conf": 0.9326171875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    359,
+    119,
+    640,
+    480
+   ],
+   "located_at": null
+  },
+  {
+   "id": 3,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548549.8375938,
+   "last_seen": 1789548601.3241723,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 354,
+   "max_conf": 0.814453125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    252,
+    2,
+    299,
+    64
+   ],
+   "located_at": null
+  },
+  {
+   "id": 4,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548549.9518902,
+   "last_seen": 1789548587.7244039,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 235,
+   "max_conf": 0.83642578125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    323,
+    1,
+    413,
+    79
+   ],
+   "located_at": null
+  },
+  {
+   "id": 5,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548553.6905544,
+   "last_seen": 1789548587.6133718,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 47,
+   "max_conf": 0.591796875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    324,
+    1,
+    418,
+    142
+   ],
+   "located_at": null
+  },
+  {
+   "id": 6,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548553.6905544,
+   "last_seen": 1789548558.0126512,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 15,
+   "max_conf": 0.78466796875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    158,
+    6,
+    233,
+    157
+   ],
+   "located_at": null
+  },
+  {
+   "id": 7,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548553.717712,
+   "last_seen": 1789548560.0835915,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 20,
+   "max_conf": 0.66357421875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    36,
+    6,
+    90,
+    93
+   ],
+   "located_at": null
+  },
+  {
+   "id": 8,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548553.6905544,
+   "last_seen": 1789548611.812844,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 323,
+   "max_conf": 0.7568359375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    438,
+    5,
+    469,
+    82
+   ],
+   "located_at": null
+  },
+  {
+   "id": 9,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548554.0107772,
+   "last_seen": 1789548557.5234292,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 12,
+   "max_conf": 0.5224609375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    530,
+    0,
+    639,
+    241
+   ],
+   "located_at": null
+  },
+  {
+   "id": 10,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548556.5588603,
+   "last_seen": 1789548612.448516,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 503,
+   "max_conf": 0.884765625,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    115,
+    0,
+    177,
+    100
+   ],
+   "located_at": null
+  },
+  {
+   "id": 11,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548576.5246868,
+   "last_seen": 1789548587.7244039,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 70,
+   "max_conf": 0.443603515625,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    352,
+    0,
+    412,
+    78
+   ],
+   "located_at": null
+  },
+  {
+   "id": 12,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548583.2177312,
+   "last_seen": 1789548587.5639179,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 23,
+   "max_conf": 0.419677734375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    586,
+    49,
+    640,
+    194
+   ],
+   "located_at": null
+  },
+  {
+   "id": 13,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548583.295694,
+   "last_seen": 1789548612.448516,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 157,
+   "max_conf": 0.65234375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    495,
+    278,
+    640,
+    478
+   ],
+   "located_at": null
+  },
+  {
+   "id": 14,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548585.0065324,
+   "last_seen": 1789548599.723344,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 189,
+   "max_conf": 0.74755859375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    0,
+    0,
+    77,
+    279
+   ],
+   "located_at": null
+  },
+  {
+   "id": 15,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548588.3805597,
+   "last_seen": 1789548606.8570914,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 81,
+   "max_conf": 0.36669921875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    353,
+    7,
+    398,
+    76
+   ],
+   "located_at": null
+  },
+  {
+   "id": 16,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548596.3319602,
+   "last_seen": 1789548596.5741436,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 7,
+   "max_conf": 0.4140625,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    387,
+    0,
+    448,
+    69
+   ],
+   "located_at": null
+  },
+  {
+   "id": 17,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548597.2944632,
+   "last_seen": 1789548611.0991356,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 89,
+   "max_conf": 0.673828125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    608,
+    33,
+    640,
+    163
+   ],
+   "located_at": null
+  },
+  {
+   "id": 18,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548601.4048223,
+   "last_seen": 1789548612.448516,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 259,
+   "max_conf": 0.71240234375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    385,
+    11,
+    414,
+    86
+   ],
+   "located_at": null
+  },
+  {
+   "id": 19,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548601.6144323,
+   "last_seen": 1789548612.0132883,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 193,
+   "max_conf": 0.68017578125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    108,
+    0,
+    157,
+    100
+   ],
+   "located_at": null
+  },
+  {
+   "id": 20,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548601.643542,
+   "last_seen": 1789548612.448516,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 256,
+   "max_conf": 0.8408203125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    495,
+    40,
+    640,
+    478
+   ],
+   "located_at": null
+  },
+  {
+   "id": 21,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548601.6144323,
+   "last_seen": 1789548611.9641218,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 37,
+   "max_conf": 0.401611328125,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    106,
+    0,
+    145,
+    93
+   ],
+   "located_at": null
+  },
+  {
+   "id": 22,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548602.6903667,
+   "last_seen": 1789548606.2928717,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 11,
+   "max_conf": 0.415771484375,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    173,
+    1,
+    210,
+    33
+   ],
+   "located_at": null
+  },
+  {
+   "id": 23,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789548981.907581,
+   "last_seen": 1789548989.6945586,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 10,
+   "max_conf": 0.91796875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    0,
+    0,
+    328,
+    395
+   ],
+   "located_at": null
+  },
+  {
+   "id": 24,
+   "label": "human",
+   "lat": null,
+   "lon": null,
+   "first_seen": 1789549112.9815338,
+   "last_seen": 1789549120.6829364,
+   "last_lat": null,
+   "last_lon": null,
+   "hits": 35,
+   "max_conf": 0.9091796875,
+   "moved_m": 0.0,
+   "max_moved_m": 0.0,
+   "last_box": [
+    306,
+    111,
+    556,
+    479
+   ],
+   "located_at": null
+  }
+ ]
+}
