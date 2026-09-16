@@ -7,6 +7,7 @@ Sumber video VRX 5.8GHz (USB UVC) + analisis model (.pt) - dua thread terpisah.
 Dengan begitu FPS tampilan = FPS kamera, tidak tertahan oleh kecepatan model.
 Logika pencarian kamera diambil dari vrx_viewer.py.
 """
+import os
 import sys
 import threading
 import time
@@ -237,6 +238,100 @@ def blue_ratio(frame):
     return float(blue.mean())
 
 
+# ----------------------------------------------------------------------------- recorder
+class Recorder(threading.Thread):
+    """
+    Rekam video yang tampil di browser (overlay deteksi ikut) ke file dengan fps tetap.
+    Frame diambil dari VideoSource.latest_frame() tiap 1/fps detik: kalau kamera lebih lambat
+    frame diduplikasi, kalau lebih cepat frame dilewati -> durasi file = durasi nyata.
+    Satu Recorder = satu file; buat baru untuk rekaman berikutnya.
+    """
+    # MPEG-4 (mp4v) selalu ada di FFmpeg bawaan OpenCV; H.264 (avc1) tidak, karena wheel opencv-python
+    # tidak membawa OpenH264 -> mencobanya hanya mencetak error. File .mp4 mp4v diputar VLC / Windows Media Player.
+    CODECS = (("mp4v", ".mp4"), ("XVID", ".avi"))
+
+    def __init__(self, video, directory, fps=25.0, prefix="rekaman"):
+        super().__init__(daemon=True, name="recorder")
+        self.video = video
+        self.directory = directory
+        self.fps = float(fps) if fps and fps > 1 else 25.0
+        self.session = time.strftime("%Y%m%d_%H%M%S")
+        self.prefix = prefix
+        self.path = None           # ditentukan saat frame pertama (butuh ukuran & codec yang berhasil)
+        self.frames = 0
+        self.started = time.time()
+        self.error = None
+        self._stop = threading.Event()
+        self._writer = None
+
+    @property
+    def filename(self):
+        return os.path.basename(self.path) if self.path else None
+
+    def seconds(self):
+        return self.frames / self.fps
+
+    def size_bytes(self):
+        try:
+            return os.path.getsize(self.path) if self.path else 0
+        except OSError:
+            return 0
+
+    def _open(self, w, h):
+        os.makedirs(self.directory, exist_ok=True)
+        for fourcc, ext in self.CODECS:
+            wr = self._try_open(fourcc, ext, w, h)
+            if wr is not None:
+                return wr
+        self.error = "tidak ada codec video yang tersedia"
+        return None
+
+    def _try_open(self, fourcc, ext, w, h):
+        path = os.path.join(self.directory, f"{self.prefix}_{self.session}{ext}")
+        wr = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*fourcc), self.fps, (w, h))
+        if wr.isOpened():
+            self.path = path
+            print(f"[rec] mulai {path} ({w}x{h} @ {self.fps:.0f} fps, codec {fourcc})")
+            return wr
+        wr.release()
+        try:
+            os.remove(path)  # VideoWriter kadang meninggalkan file kosong
+        except OSError:
+            pass
+        return None
+
+    def stop(self):
+        self._stop.set()
+
+    def run(self):
+        dt = 1.0 / self.fps
+        nxt = time.perf_counter()
+        size = None
+        while not self._stop.is_set():
+            frame = self.video.latest_frame()
+            if frame is not None:
+                h, w = frame.shape[:2]
+                if self._writer is None:
+                    self._writer = self._open(w, h)
+                    if self._writer is None:
+                        break
+                    size = (w, h)
+                if (w, h) != size:  # resolusi kamera berubah di tengah rekaman: sesuaikan ke ukuran awal
+                    frame = cv2.resize(frame, size)
+                self._writer.write(frame)
+                self.frames += 1
+            nxt += dt
+            wait = nxt - time.perf_counter()
+            if wait > 0:
+                time.sleep(wait)
+            else:
+                nxt = time.perf_counter()  # tertinggal (mis. laptop sleep): jangan mengejar
+        if self._writer is not None:
+            self._writer.release()
+            print(f"[rec] selesai {self.path}: {self.frames} frame, {self.seconds():.1f} s, "
+                  f"{self.size_bytes() / 1e6:.1f} MB")
+
+
 # ----------------------------------------------------------------------------- video
 class VideoSource(threading.Thread):
     def __init__(self, cam_index=None, width=None, height=None, jpeg_quality=70,
@@ -255,6 +350,7 @@ class VideoSource(threading.Thread):
         self._raw = None       # ndarray BGR frame bagus terakhir (untuk analyzer)
         self._raw_seq = 0      # naik hanya saat ada frame bagus baru -> analyzer tidak mengulang frame tahan
         self._jpeg = None      # bytes JPEG frame terakhir + overlay (untuk browser)
+        self._frame = None     # ndarray BGR frame terakhir + overlay (untuk recorder)
         self._seq = 0
         self._stop = threading.Event()
         self._last_good = None
@@ -288,6 +384,11 @@ class VideoSource(threading.Thread):
     def snapshot(self):
         with self._lock:
             return self._jpeg
+
+    def latest_frame(self):
+        """Frame BGR terakhir persis seperti yang tampil di browser (overlay + tag sinyal hilang)."""
+        with self._lock:
+            return self._frame
 
     def stop(self):
         self._stop.set()
@@ -380,6 +481,7 @@ class VideoSource(threading.Thread):
                     self._raw = raw
                     self._raw_seq += 1
                 self._jpeg = buf.tobytes()
+                self._frame = frame
                 self._seq += 1
                 self._cond.notify_all()
 

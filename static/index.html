@@ -32,7 +32,12 @@
   .video img{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:block}
   .video .osd{position:absolute;left:10px;top:10px;font:12px ui-monospace,Consolas,monospace;color:var(--ok);background:rgba(0,0,0,.45);padding:4px 8px;border-radius:6px}
   .video .osd.off{color:var(--bad)}
-  .video .btn{position:absolute;right:10px;top:10px}
+  .video .tools{position:absolute;right:10px;top:10px;display:flex;gap:6px;align-items:center}
+  .video .tools .btn{background:rgba(34,40,53,.9)}
+  .video .tools .msg{font-size:11px;color:var(--warn);background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
+  .btn.rec{border-color:var(--bad);color:var(--bad)}
+  .btn.rec .blink{animation:blink 1s steps(2,start) infinite}
+  @keyframes blink{to{visibility:hidden}}
   .btn{background:#222835;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;text-decoration:none}
   .btn:hover{border-color:var(--acc)}
   /* map */
@@ -94,7 +99,12 @@
     <div class="card video">
       <img id="video" src="/video" alt="VRX video">
       <div class="osd" id="osd">menunggu video...</div>
-      <a class="btn" href="/snapshot" target="_blank">📷 Snapshot</a>
+      <div class="tools">
+        <span class="msg" id="rec-msg" hidden></span>
+        <a class="btn" id="rec-dl" href="#" download hidden title="Unduh rekaman terakhir">💾 Rekaman</a>
+        <button class="btn" id="rec" title="Rekam video yang tampil (termasuk kotak deteksi) ke folder recordings/">⏺ Rekam</button>
+        <a class="btn" href="/snapshot" target="_blank">📷 Snapshot</a>
+      </div>
     </div>
     <div class="card fixed">
       <h2>Model deteksi (best.pt)</h2>
@@ -444,6 +454,22 @@ function renderTracks(tr){
 }
 
 let lastConn = null;
+// ---- rekam video (server menulis file di recordings/) ----
+let recOn = false;
+$("rec").onclick = () => { $("rec-msg").hidden = true; send({cmd: recOn ? "rec_stop" : "rec_start"}); };
+const mmss = sec => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+function renderRec(r){
+  if (!r) return;
+  recOn = r.on;
+  const b = $("rec");
+  b.className = "btn" + (r.on ? " rec" : "");
+  b.innerHTML = r.on ? `<span class="blink">⏺</span> Stop ${mmss(r.sec)} <span class="muted">${r.size_mb} MB</span>` : "⏺ Rekam";
+  const dl = $("rec-dl");
+  dl.hidden = !r.last_file || r.on;
+  if (r.last_file) { dl.href = "/recordings/" + encodeURIComponent(r.last_file); dl.title = "Unduh " + r.last_file; }
+  if (r.error) { $("rec-msg").textContent = r.error; $("rec-msg").hidden = false; }
+}
+
 function renderTelemetryConn(t){
   const st = t.status || "disconnected";
   $("tstat").textContent = st === "waiting" ? "menunggu radio/FC dicolok..." : st;
@@ -480,11 +506,13 @@ function render(s){
   osd.className = "osd " + (!s.video.connected || sigLost ? "off" : "");
   osd.textContent = !s.video.connected ? "VRX tidak terdeteksi"
     : sigLost ? `SINYAL HILANG ${s.video.lost_s} s  (menampilkan frame terakhir)`
-    : `${s.video.size}  ${s.video.fps} fps` + (s.model.loaded ? `  |  model ${s.model.fps} fps ${s.model.latency_ms} ms` : "");
+    : `${s.video.size}  ${s.video.fps} fps` + (s.model.loaded ? `  |  model ${s.model.fps} fps ${s.model.latency_ms} ms` : "")
+      + (s.rec && s.rec.on ? `  |  REC ${mmss(s.rec.sec)}` : "");
 
   renderModel(s.model);
   renderGeo(s.geo || {}, s.model.detections || []);
   renderTracks(s.tracks);
+  renderRec(s.rec);
   if (s.logs) { $("log-telem").textContent = s.logs.telemetry_rows; $("log-est").textContent = s.logs.estimate_rows; }
 
   if (s.fix_type < 2 || (s.lat === 0 && s.lon === 0)) s.lat = s.lon = null;  // belum ada fix GPS
@@ -511,6 +539,7 @@ function connect(){
     else if (m.type === "models") fillModels(m.models);
     else if (m.type === "ack") {
       if (m.result !== "ok") {
+        if (m.cmd.startsWith("rec")) { $("rec-msg").textContent = m.result; $("rec-msg").hidden = false; return; }
         const el = m.cmd.startsWith("model") ? $("m-stat") : m.cmd.startsWith("geo") ? $("g-pose") : m.cmd.startsWith("track") ? $("t-count") : $("tstat");
         el.textContent = m.result;
       }

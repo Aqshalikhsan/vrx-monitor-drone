@@ -21,6 +21,8 @@ Endpoint:
     /export/tracks.csv      objek terlacak (dibuat saat diminta)
     /export/telemetry.csv   log telemetry sesi ini (2 Hz, folder logs/)
     /export/estimates.csv   log estimasi lokasi tiap deteksi sesi ini (maks 5 Hz, folder logs/)
+    /api/recordings         daftar file rekaman video (folder recordings/)
+    /recordings/<file>      unduh rekaman (mulai/stop rekam lewat tombol di web)
 """
 import argparse
 import asyncio
@@ -39,7 +41,7 @@ from sources import logger as csvlog
 from sources.geolocate import Geolocator
 from sources.telemetry import TelemetrySource, list_ports, snapshot_empty
 from sources.tracker import ObjectTracker
-from sources.video import Analyzer, VideoSource
+from sources.video import Analyzer, Recorder, VideoSource
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MODEL = os.path.join(HERE, "models", "best.pt")  # taruh best.pt kamu di sini
@@ -280,6 +282,53 @@ class TelemetryManager:
 telemetry = TelemetryManager()
 
 
+REC_DIR = os.path.join(HERE, "recordings")
+
+
+class RecManager:
+    """Satu rekaman aktif per server; file di recordings/. Dipakai dari perintah WS rec_start / rec_stop."""
+
+    def __init__(self):
+        self.rec: Recorder = None
+        self.last_file = None   # nama file rekaman terakhir yang selesai (untuk tombol unduh)
+
+    def start(self):
+        if self.rec and self.rec.is_alive():
+            return "sudah merekam"
+        if not video.connected:
+            return "video belum ada"
+        # fps file = fps kamera terukur (VRX biasanya 25/30); kalau belum terukur pakai 25
+        self.rec = Recorder(video, REC_DIR, fps=video.fps or 25.0)
+        self.rec.start()
+        return "ok"
+
+    def stop(self):
+        if not self.rec:
+            return "tidak sedang merekam"
+        self.rec.stop()
+        self.rec.join(timeout=3.0)
+        if self.rec.error:
+            res = self.rec.error
+        else:
+            self.last_file = self.rec.filename
+            res = "ok"
+        self.rec = None
+        return res
+
+    def snapshot(self):
+        r = self.rec
+        on = bool(r and r.is_alive())
+        return {"on": on,
+                "file": r.filename if on else None,
+                "sec": round(r.seconds(), 1) if on else 0,
+                "size_mb": round(r.size_bytes() / 1e6, 1) if on else 0,
+                "error": r.error if r else None,
+                "last_file": self.last_file}
+
+
+recorder = RecManager()
+
+
 def build_state():
     s = telemetry.snapshot()
     s["video"] = {
@@ -293,6 +342,7 @@ def build_state():
     s["model"] = model.snapshot()
     s["geo"] = geo.snapshot()
     s["tracks"] = tracker.snapshot()
+    s["rec"] = recorder.snapshot()
     s["logs"] = {"telemetry_rows": telem_log.rows if telem_log else 0,
                  "estimate_rows": est_log.rows if est_log else 0}
     s["server_time"] = time.time()
@@ -341,6 +391,8 @@ async def lifespan(app):
     sampler.cancel()
     telem_log.flush()
     est_log.flush()
+    if recorder.rec:
+        recorder.stop()   # tutup file supaya rekaman tetap bisa diputar
     video.stop()
     if model.analyzer:
         model.analyzer.stop()
@@ -430,6 +482,28 @@ def api_logs():
             "files": files}
 
 
+@app.get("/api/recordings")
+def api_recordings():
+    """Daftar file rekaman di recordings/ (terbaru dulu) untuk tombol unduh di web."""
+    if not os.path.isdir(REC_DIR):
+        return {"files": []}
+    out = []
+    for f in os.listdir(REC_DIR):
+        if f.lower().endswith((".mp4", ".avi")):
+            st = os.stat(os.path.join(REC_DIR, f))
+            out.append({"name": f, "size_mb": round(st.st_size / 1e6, 1), "mtime": st.st_mtime})
+    out.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"files": out}
+
+
+@app.get("/recordings/{name}")
+def get_recording(name: str):
+    path = os.path.join(REC_DIR, os.path.basename(name))  # basename: cegah ../
+    if not os.path.isfile(path):
+        return Response(status_code=404)
+    return FileResponse(path, filename=os.path.basename(path))
+
+
 def handle_command(cmd: dict) -> dict:
     """
     Perintah dari browser lewat WebSocket:
@@ -449,6 +523,7 @@ def handle_command(cmd: dict) -> dict:
       {"cmd":"track_set","radius_m":3,"lost_s":2,"expire_s":0}                  radius asosiasi objek
       {"cmd":"track_clear"}                                                      hapus semua objek terlacak
       {"cmd":"track_remove","id":3}                                              hapus satu objek
+      {"cmd":"rec_start"} / {"cmd":"rec_stop"}                                   rekam video tampilan ke recordings/
     """
     c = cmd.get("cmd")
     if c == "connect":
@@ -477,6 +552,10 @@ def handle_command(cmd: dict) -> dict:
     if c == "track_remove":
         ok = tracker.remove(int(cmd.get("id", 0)))
         return {"type": "ack", "cmd": c, "result": "ok" if ok else "id tidak ada"}
+    if c == "rec_start":
+        return {"type": "ack", "cmd": c, "result": recorder.start()}
+    if c == "rec_stop":
+        return {"type": "ack", "cmd": c, "result": recorder.stop()}
     return {"type": "ack", "cmd": c, "result": "perintah tidak dikenal"}
 
 

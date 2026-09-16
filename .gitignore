@@ -11,3 +11,6 @@ logs/
 *.log
 
 # ikut di git (jangan di-ignore): models/best.pt, config.json, tracks.json, CP210x_Universal_Windows_Driver/
+
+# rekaman video dari tombol Rekam di web (besar)
+recordings/

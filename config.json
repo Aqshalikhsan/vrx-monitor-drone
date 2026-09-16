@@ -1,5 +1,5 @@
 {
-  "mav": "COM9",
+  "mav": "auto",
   "baud": 57600,
   "hwid": "10C4:EA60:018AAE74",
   "model": {
