@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# skrip shell harus LF supaya bisa dieksekusi di Linux walau di-clone dari Windows
+*.sh text eol=lf

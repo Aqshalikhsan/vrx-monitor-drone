@@ -4,7 +4,7 @@
   "hwid": "10C4:EA60:018AAE74",
   "model": {
     "path": "best.pt",
-    "conf": 0.85,
+    "conf": 0.1,
     "imgsz": 416,
     "enabled": true
   },

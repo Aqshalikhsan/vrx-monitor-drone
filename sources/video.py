@@ -7,12 +7,17 @@ Sumber video VRX 5.8GHz (USB UVC) + analisis model (.pt) - dua thread terpisah.
 Dengan begitu FPS tampilan = FPS kamera, tidak tertahan oleh kecepatan model.
 Logika pencarian kamera diambil dari vrx_viewer.py.
 """
+import sys
 import threading
 import time
 import cv2
 
-# urutan backend yang dicoba; MSMF terbukti jalan untuk VRX di vrx_viewer.py, sisanya fallback
-BACKENDS = (cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY)
+# urutan backend yang dicoba; Windows: MSMF terbukti jalan untuk VRX di vrx_viewer.py, sisanya fallback.
+# Linux: V4L2 (device /dev/video*), lalu CAP_ANY.
+if sys.platform == "win32":
+    BACKENDS = (cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY)
+else:
+    BACKENDS = (cv2.CAP_V4L2, cv2.CAP_ANY)
 
 
 def open_cam(index, width=None, height=None):

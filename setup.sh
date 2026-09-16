@@ -93,7 +93,7 @@ for grp in dialout uucp video; do
         sudo usermod -aG "$grp" "$USER" && NEED_RELOGIN=1
     fi
 done
-if command -v brltty >/dev/null 2>&1 || systemctl list-unit-files brltty.service >/dev/null 2>&1 && systemctl is-enabled brltty >/dev/null 2>&1; then
+if command -v brltty >/dev/null 2>&1; then
     warn "brltty terpasang: di Ubuntu ini sering merebut CP210x sehingga /dev/ttyUSB tidak muncul."
     warn "Kalau radio tidak terdeteksi:  sudo apt remove brltty"
 fi

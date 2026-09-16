@@ -19,8 +19,8 @@ vrx/
 ├─ tracks.json          objek terlacak tersimpan - dibuat otomatis
 ├─ logs/                CSV telemetry & estimasi per sesi - dibuat otomatis
 ├─ requirements.txt
-├─ setup.ps1            setup otomatis Windows
-└─ run.bat              jalankan server + buka browser
+├─ setup.ps1 / run.bat  Windows: setup otomatis / jalankan server + buka browser
+└─ setup.sh  / run.sh   Linux  : setup otomatis / jalankan server + buka browser
 ```
 
 ---
@@ -101,10 +101,42 @@ Radio FTDI / CH340 / USB langsung ke Pixhawk biasanya tidak butuh driver tambaha
 
 ---
 
+## Instalasi (Linux)
+
+Alurnya sama dengan Windows, skripnya `setup.sh` dan `run.sh`:
+
+```bash
+sudo apt install python3 python3-venv python3-pip   # Debian/Ubuntu; Fedora: dnf install python3
+chmod +x setup.sh run.sh
+./run.sh                                             # setup otomatis saat pertama kali, lalu jalan
+```
+
+Setup manual (opsional): `bash setup.sh` (tambah `--cpu` untuk paksa torch CPU). Skrip ini juga:
+
+- memasang `libgl1`/`libglib2.0-0` yang dibutuhkan OpenCV (Debian/Ubuntu);
+- memasang torch **CUDA** kalau `nvidia-smi` ada, kalau tidak torch CPU;
+- menambahkan user ke grup `dialout` (serial) dan `video` (kamera). **Logout/login sekali** setelahnya.
+
+Driver CP210x / FTDI / CH340 **sudah bawaan kernel Linux**, tidak perlu install apa pun. Radio muncul sebagai
+`/dev/ttyUSB0` (cek `ls /dev/ttyUSB*`), pilih dari halaman web atau `./run.sh --mav /dev/ttyUSB0`.
+Mode `auto` mendeteksi VID:PID yang sama seperti di Windows.
+
+Masalah khas Linux:
+
+| Gejala | Solusi |
+|---|---|
+| `/dev/ttyUSB0` tidak muncul padahal radio tercolok | Ubuntu: paket `brltty` merebut CP210x -> `sudo apt remove brltty`, cabut-colok radio. |
+| `Permission denied: /dev/ttyUSB0` | Belum di grup `dialout` (atau belum logout/login). Cek `groups`. Darurat: `sudo chmod a+rw /dev/ttyUSB0`. |
+| VRX tidak terbuka | `ls /dev/video*`; VRX UVC biasanya bikin 2 device, coba `./run.sh --cam 0` atau `--cam 2`. Tutup aplikasi lain (Cheese, OBS). |
+| `libGL.so.1: cannot open shared object` | `sudo apt install libgl1` (skrip setup seharusnya sudah memasangnya). |
+
+---
+
 ## Menjalankan
 
 ```
-run.bat                                  # atau: .venv\Scripts\python server.py
+run.bat                                  # Windows; atau: .venv\Scripts\python server.py
+./run.sh                                 # Linux;   atau: .venv/bin/python server.py
 py server.py --cam test --mav sim        # uji tanpa hardware
 py server.py --host 0.0.0.0              # bisa dibuka dari HP di WiFi yang sama: http://<ip-laptop>:8000
 py server.py --port 8080                 # kalau 8000 dipakai aplikasi lain
@@ -130,12 +162,12 @@ Radio darat dan udara harus punya `NETID` sama dan `SERIAL_SPEED=57`.
 
 | Gejala | Penyebab / solusi |
 |---|---|
-| Browser: "localhost refused to connect" | Server belum jalan. Jalankan `run.bat`, biarkan terminalnya terbuka. |
+| Browser: "localhost refused to connect" | Server belum jalan. Jalankan `run.bat` / `./run.sh`, biarkan terminalnya terbuka. |
 | VRX "tidak ada" | Colok USB VRX, tutup aplikasi lain yang memakai kamera (OBS, Zoom). Cek `py server.py --cam 1`. |
 | Telemetry `waiting` terus | Radio belum tercolok / driver CP210x belum terpasang (lihat di atas). |
 | Telemetry `connecting` / tidak ada heartbeat, padahal COM ada | Drone mati, radio udara belum link (LED hijau solid = link), kabel TX/RX ke FC terbalik, atau baud FC tidak 57600. |
 | Port COM "Access is denied" | Dipakai Mission Planner. Tutup MP, atau pakai MAVLink Mirror MP -> pilih UDP di web. |
-| Model `error: ...` saat load | `ultralytics`/`torch` belum terpasang, atau torch tidak cocok GPU -> jalankan ulang `setup.ps1`. |
+| Model `error: ...` saat load | `ultralytics`/`torch` belum terpasang, atau torch tidak cocok GPU -> jalankan ulang `setup.ps1` / `setup.sh`. |
 | Video blue screen | Sinyal 5.8 GHz hilang; server otomatis menahan frame terakhir dan memberi label merah. |
 | Lat/lon objek "belum ada GPS" | Drone belum fix GPS (di dalam ruangan). Untuk uji pakai "pose manual" di kartu Estimasi. |
 
