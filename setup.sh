@@ -64,8 +64,15 @@ VPY="$PWD/.venv/bin/python"
 # ---- 4. Torch: CUDA kalau ada GPU NVIDIA, kalau tidak CPU ----
 step "PyTorch"
 if [ "$CPU" -eq 0 ] && command -v nvidia-smi >/dev/null 2>&1; then
-    echo "GPU NVIDIA terdeteksi -> torch CUDA 12.8 (download ~2.5 GB)"
-    "$VPY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+    # Build torch dipilih dari compute capability GPU:
+    #   >= 7.5 (GTX 16xx, RTX 20xx s/d 50xx)      -> cu128 (torch terbaru)
+    #   <  7.5 (GTX 750/900/10xx, Quadro/MX lama) -> cu118 (torch 2.7.1, build terakhir yang bawa sm_50-sm_70; cu128 hanya sm_75+)
+    # Driver lama tanpa query compute_cap -> dianggap GPU lama -> cu118. Tanpa NVIDIA (Intel/AMD) -> CPU di bawah.
+    CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d ' ')
+    if awk "BEGIN{exit !(${CC:-0} >= 7.5)}"; then IDX=cu128; else IDX=cu118; fi
+    echo "GPU NVIDIA terdeteksi (compute capability ${CC:-?}) -> torch CUDA build $IDX (download ~2.5 GB)"
+    "$VPY" -m pip uninstall -y torch torchvision >/dev/null 2>&1 || true   # build lain yang sudah ada tidak diganti pip biasa
+    "$VPY" -m pip install torch torchvision --index-url "https://download.pytorch.org/whl/$IDX"
 else
     echo "Tanpa GPU NVIDIA -> torch CPU (deteksi lebih lambat, ~5-10 fps untuk model nano)"
     "$VPY" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu

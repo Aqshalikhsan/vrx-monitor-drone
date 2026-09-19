@@ -41,7 +41,7 @@ from sources import logger as csvlog
 from sources.geolocate import Geolocator
 from sources.telemetry import TelemetrySource, list_ports, snapshot_empty
 from sources.tracker import ObjectTracker
-from sources.video import Analyzer, Recorder, VideoSource
+from sources.video import COLORMAPS, VIEW_MODES, Analyzer, Recorder, VideoSource
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MODEL = os.path.join(HERE, "models", "best.pt")  # taruh best.pt kamu di sini
@@ -154,6 +154,28 @@ def geo_set(cmd):
     snap = geo.snapshot()
     save_config(geo={"cam": snap["cam"], "manual": snap["manual"]})
     return "ok"
+
+
+def view_set(cmd):
+    """Mode tampilan overlay video: detection | trace (heatmap) | both, plus opsi heatmap."""
+    mode = cmd.get("mode")
+    if mode is not None:
+        if mode not in VIEW_MODES:
+            return f"mode harus salah satu dari {', '.join(VIEW_MODES)}"
+        video.view_mode = mode
+    cm = cmd.get("colormap")
+    if cm is not None and cm not in COLORMAPS:
+        return f"colormap harus salah satu dari {', '.join(COLORMAPS)}"
+    video.heatmap.set(colormap=cm, opacity=cmd.get("opacity"), fade_s=cmd.get("fade_s"))
+    hm = video.heatmap
+    save_config(view={"mode": video.view_mode, "colormap": hm.colormap, "opacity": hm.opacity, "fade_s": hm.fade_s})
+    return "ok"
+
+
+def view_snapshot():
+    hm = video.heatmap
+    return {"mode": video.view_mode, "colormap": hm.colormap, "opacity": hm.opacity, "fade_s": hm.fade_s,
+            "heat": hm.active, "colormaps": list(COLORMAPS)}
 
 
 class ModelManager:
@@ -344,6 +366,7 @@ def build_state():
     s["geo"] = geo.snapshot()
     s["tracks"] = tracker.snapshot()
     s["rec"] = recorder.snapshot()
+    s["view"] = view_snapshot()
     s["logs"] = {"telemetry_rows": telem_log.rows if telem_log else 0,
                  "estimate_rows": est_log.rows if est_log else 0}
     s["server_time"] = time.time()
@@ -357,6 +380,10 @@ async def lifespan(app):
                         jpeg_quality=ARGS.quality, hold_on_loss=not ARGS.no_hold,
                         blue_threshold=ARGS.blue_threshold)
     video.start()
+    vcfg = load_config().get("view", {})
+    if vcfg.get("mode") in VIEW_MODES:
+        video.view_mode = vcfg["mode"]
+    video.heatmap.set(colormap=vcfg.get("colormap"), opacity=vcfg.get("opacity"), fade_s=vcfg.get("fade_s"))
 
     # model awal: argumen --model/--no-model > config.json (pengaturan terakhir dari web) > models/best.pt jika ada
     cfg = load_config()
@@ -527,6 +554,9 @@ def handle_command(cmd: dict) -> dict:
       {"cmd":"rec_start","overlay":true}                                         rekam video ke recordings/
       {"cmd":"rec_start","overlay":false}                                        ... tanpa kotak deteksi (video polos)
       {"cmd":"rec_stop"}
+      {"cmd":"view_set","mode":"trace"}                                          tampilan: detection | trace | both
+      {"cmd":"view_set","colormap":"jet","opacity":0.5,"fade_s":0}               opsi heatmap (fade_s 0 = tanpa peluruhan)
+      {"cmd":"heat_reset"}                                                       kosongkan heatmap
     """
     c = cmd.get("cmd")
     if c == "connect":
@@ -559,6 +589,11 @@ def handle_command(cmd: dict) -> dict:
         return {"type": "ack", "cmd": c, "result": recorder.start(overlay=bool(cmd.get("overlay", True)))}
     if c == "rec_stop":
         return {"type": "ack", "cmd": c, "result": recorder.stop()}
+    if c == "view_set":
+        return {"type": "ack", "cmd": c, "result": view_set(cmd)}
+    if c == "heat_reset":
+        video.heatmap.reset()
+        return {"type": "ack", "cmd": c, "result": "ok"}
     return {"type": "ack", "cmd": c, "result": "perintah tidak dikenal"}
 
 

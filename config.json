@@ -6,7 +6,7 @@
     "path": "best.pt",
     "conf": 0.7,
     "imgsz": 416,
-    "enabled": false
+    "enabled": true
   },
   "geo": {
     "cam": {

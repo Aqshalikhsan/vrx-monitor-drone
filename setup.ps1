@@ -25,12 +25,23 @@ if (-not (Test-Path ".venv")) { & $PY -m venv .venv }
 $VPY = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 & $VPY -m pip install --upgrade pip --quiet
 
-# ---- 3. Torch: CUDA kalau ada GPU NVIDIA, kalau tidak CPU ----
+# ---- 3. Torch: CUDA kalau ada GPU NVIDIA (build sesuai generasi GPU), kalau tidak CPU ----
+# Laptop tanpa NVIDIA (Intel/AMD/iGPU) -> torch CPU: deteksi tetap jalan, hanya lebih lambat.
 Step "PyTorch"
 $hasNvidia = (-not $Cpu) -and (Get-Command nvidia-smi -ErrorAction SilentlyContinue)
 if ($hasNvidia) {
-    Write-Host "GPU NVIDIA terdeteksi -> torch CUDA 12.8 (download ~2.5 GB)"
-    & $VPY -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+    # Build torch dipilih dari compute capability GPU:
+    #   >= 7.5 (GTX 16xx, RTX 20xx s/d 50xx)      -> cu128 (torch terbaru)
+    #   <  7.5 (GTX 750/900/10xx, Quadro/MX lama) -> cu118 (torch 2.7.1, build terakhir yang masih bawa sm_50-sm_70
+    #                                                 di Windows; cu126 Windows hanya sm_61+, cu128 hanya sm_75+)
+    # Driver lama tanpa query compute_cap -> dianggap GPU lama -> cu118.
+    $cc = 0.0
+    try { $cc = [double](((nvidia-smi --query-gpu=compute_cap --format=csv,noheader) | Select-Object -First 1).Trim()) } catch {}
+    $idx = if ($cc -ge 7.5) { "cu128" } else { "cu118" }
+    Write-Host "GPU NVIDIA terdeteksi (compute capability $cc) -> torch CUDA build $idx (download ~2.5 GB)"
+    # torch build lain yang sudah terpasang (mis. cu128 di GPU lama) tidak diganti pip biasa -> lepas dulu
+    & $VPY -m pip uninstall -y torch torchvision 2>$null | Out-Null
+    & $VPY -m pip install torch torchvision --index-url https://download.pytorch.org/whl/$idx
 } else {
     Write-Host "Tanpa GPU NVIDIA -> torch CPU (deteksi lebih lambat, ~5-10 fps untuk model nano)"
     & $VPY -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu

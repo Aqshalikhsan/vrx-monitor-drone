@@ -3,6 +3,7 @@ Sumber video VRX 5.8GHz (USB UVC) + analisis model (.pt) - dua thread terpisah.
 
   VideoSource  : baca kamera secepat mungkin, overlay deteksi terakhir, encode JPEG
   Analyzer     : ambil frame TERBARU, jalankan model, simpan deteksi (frame lama dibuang)
+  Heatmap      : akumulasi jejak aktivitas objek (mode tampilan "trace", ala Ultralytics Heatmap)
 
 Dengan begitu FPS tampilan = FPS kamera, tidak tertahan oleh kecepatan model.
 Logika pencarian kamera diambil dari vrx_viewer.py.
@@ -95,7 +96,130 @@ def find_vrx(max_index=6):
     return None, None
 
 
+# ----------------------------------------------------------------------------- heatmap (mode trace)
+COLORMAPS = {
+    "parula": cv2.COLORMAP_PARULA, "jet": cv2.COLORMAP_JET, "turbo": cv2.COLORMAP_TURBO,
+    "hot": cv2.COLORMAP_HOT, "inferno": cv2.COLORMAP_INFERNO, "viridis": cv2.COLORMAP_VIRIDIS,
+    "magma": cv2.COLORMAP_MAGMA, "deepgreen": cv2.COLORMAP_DEEPGREEN,
+}
+VIEW_MODES = ("detection", "trace", "both")
+
+
+class Heatmap:
+    """
+    Jejak aktivitas objek ala Ultralytics Heatmap solution: tiap deteksi menambah "panas" berbentuk
+    lingkaran (radius = sisi terpendek kotak / 2) ke akumulator seukuran frame. Saat ditampilkan,
+    akumulator di-normalisasi 0..255 -> colormap -> dicampur dengan frame (addWeighted).
+
+    add()    dipanggil Analyzer sekali per frame analisis (bukan per frame kamera, supaya laju
+             kamera tidak mempengaruhi kecepatan akumulasi)
+    render() dipanggil VideoSource tiap frame kamera; hasil colormap di-cache sampai akumulator berubah
+    fade_s   waktu paruh (detik) peluruhan panas; 0 = tanpa peluruhan (persis seperti video Ultralytics)
+    """
+
+    def __init__(self, colormap="parula", opacity=0.5, fade_s=0.0):
+        self._lock = threading.Lock()
+        self._acc = None       # float32 HxW
+        self._ver = 0          # naik tiap akumulator berubah -> cache colormap kadaluarsa
+        self._cache = None     # (ver, colormap, BGR uint8)
+        self._last_add = None
+        self.colormap = colormap if colormap in COLORMAPS else "parula"
+        self.opacity = float(opacity)
+        self.fade_s = float(fade_s)
+
+    def set(self, colormap=None, opacity=None, fade_s=None):
+        if colormap is not None and colormap in COLORMAPS:
+            self.colormap = colormap
+        if opacity is not None:
+            self.opacity = min(max(float(opacity), 0.05), 0.95)
+        if fade_s is not None:
+            self.fade_s = max(0.0, float(fade_s))
+
+    def reset(self):
+        with self._lock:
+            self._acc = None
+            self._cache = None
+            self._ver += 1
+
+    @property
+    def active(self):
+        """True kalau sudah ada panas (tombol reset di web aktif)."""
+        with self._lock:
+            return self._acc is not None and bool(self._acc.any())
+
+    def add(self, dets, w, h):
+        import numpy as np
+        now = time.time()
+        with self._lock:
+            if self._acc is None or self._acc.shape != (h, w):
+                self._acc = np.zeros((h, w), np.float32)   # resolusi kamera berubah -> mulai ulang
+            elif self.fade_s > 0 and self._last_add is not None:
+                dt = now - self._last_add
+                if dt > 0:
+                    self._acc *= 0.5 ** (dt / self.fade_s)   # peluruhan eksponensial dengan waktu paruh fade_s
+                    self._ver += 1
+            self._last_add = now
+            for d in dets:
+                x1, y1, x2, y2 = d["box"]
+                x1, y1, x2, y2 = max(x1, 0), max(y1, 0), min(x2, w), min(y2, h)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                r2 = (min(x2 - x1, y2 - y1) // 2) ** 2
+                xv, yv = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
+                inside = (xv - (x1 + x2) // 2) ** 2 + (yv - (y1 + y2) // 2) ** 2 <= r2
+                self._acc[y1:y2, x1:x2][inside] += 2
+            if dets:
+                self._ver += 1
+
+    def _colored(self):
+        """BGR colormap dari akumulator (cache per versi), None kalau belum ada panas."""
+        import numpy as np
+        with self._lock:
+            acc, ver = self._acc, self._ver
+            if acc is None:
+                return None
+            if self._cache is not None and self._cache[0] == ver and self._cache[1] == self.colormap:
+                return self._cache[2]
+            if not acc.any():
+                return None
+            norm = cv2.normalize(acc, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            col = cv2.applyColorMap(norm, COLORMAPS[self.colormap])
+            self._cache = (ver, self.colormap, col)
+            return col
+
+    def render(self, frame):
+        """Frame baru dengan heatmap tercampur; frame asli dikembalikan apa adanya kalau belum ada panas."""
+        col = self._colored()
+        if col is None or col.shape[:2] != frame.shape[:2]:
+            return frame
+        a = self.opacity
+        return cv2.addWeighted(frame, 1.0 - a, col, a, 0)
+
+
 # ----------------------------------------------------------------------------- analyzer
+def gpu_supported(torch):
+    """
+    True kalau build torch punya kernel untuk GPU pertama. Contoh: torch cu128 hanya bawa sm_75+ ->
+    GTX 750 Ti (5.0) / GTX 10xx (6.1) tidak jalan; build cu118 bawa sm_50..sm_90. Build CPU -> tidak dipanggil.
+    """
+    try:
+        major, minor = torch.cuda.get_device_capability(0)
+        archs = torch.cuda.get_arch_list()          # ['sm_75', 'sm_80', ..., 'compute_90']
+        if not archs:
+            return True
+        cc = major * 10 + minor
+        for a in archs:
+            kind, num = a.split("_")
+            num = int(num)
+            if kind == "sm" and num // 10 == major and num <= cc:   # biner kompatibel dalam satu generasi
+                return True
+            if kind == "compute" and num <= cc:                    # PTX bisa di-JIT ke GPU lebih baru
+                return True
+        return False
+    except Exception:
+        return True
+
+
 class Analyzer(threading.Thread):
     """
     Thread inferensi. Subclass / ganti `infer()` untuk model lain.
@@ -151,11 +275,27 @@ class Analyzer(threading.Thread):
         self.model = YOLO(self.model_path)
         self.names = self.model.names
         use_cuda = torch.cuda.is_available() and str(self.device) != "cpu"
+        if use_cuda and not gpu_supported(torch):
+            cc = "%d.%d" % torch.cuda.get_device_capability(0)
+            print(f"[analyzer] GPU {torch.cuda.get_device_name(0)} (compute capability {cc}) tidak didukung "
+                  f"torch {torch.__version__} -> pakai CPU. Untuk GPU: jalankan ulang setup.ps1 / setup.sh "
+                  f"(memilih build torch yang cocok).")
+            use_cuda = False
+            self.device = "cpu"
         if not use_cuda:
             self.half = False
         # warm-up: inferensi pertama lambat (alokasi CUDA / compile), jangan sampai kena frame nyata
         dummy = np.zeros((self.imgsz, self.imgsz, 3), np.uint8)
-        self.model.predict(dummy, imgsz=self.imgsz, device=self.device, verbose=False, **self._prec())
+        try:
+            self.model.predict(dummy, imgsz=self.imgsz, device=self.device, verbose=False, **self._prec())
+        except Exception as e:
+            if not use_cuda:
+                raise
+            # driver/CUDA bermasalah (versi driver lama, VRAM habis, dsb.) -> tetap jalan di CPU
+            print(f"[analyzer] inferensi di GPU gagal ({str(e).splitlines()[0]}) -> pakai CPU")
+            use_cuda, self.half, self.device = False, False, "cpu"
+            self.model = YOLO(self.model_path)
+            self.model.predict(dummy, imgsz=self.imgsz, device="cpu", verbose=False)
         self.device_name = (torch.cuda.get_device_name(0) if use_cuda else "CPU") + (" fp16" if self.half else "")
         self.status = "ready"
         print(f"[analyzer] model {self.model_path} siap ({len(self.names)} kelas) di {self.device_name}")
@@ -199,6 +339,9 @@ class Analyzer(threading.Thread):
                     self.geolocator.annotate(dets, w, h)
                 if self.tracker is not None:
                     self.tracker.update(dets)   # tetap dipanggil saat kosong -> status objek jadi lost
+                if self.video.view_mode != "detection":
+                    h, w = frame.shape[:2]
+                    self.video.heatmap.add(dets, w, h)   # tetap dipanggil saat kosong -> peluruhan jalan
             except Exception as e:
                 print(f"[analyzer] error inferensi: {e}")
                 dets = []
@@ -344,6 +487,9 @@ class VideoSource(threading.Thread):
         self.req_size = (width, height)
         self.jpeg_quality = jpeg_quality
         self.analyzer = None  # di-set dari server kalau ada model
+        # tampilan overlay: detection (kotak), trace (heatmap ala Ultralytics), both (keduanya)
+        self.view_mode = "detection"
+        self.heatmap = Heatmap()
         # blue screen: tahan frame bagus terakhir saat VRX kehilangan sinyal
         self.hold_on_loss = hold_on_loss
         self.blue_threshold = blue_threshold
@@ -473,8 +619,11 @@ class VideoSource(threading.Thread):
                 good = True
 
             raw = frame  # analyzer dapat frame bersih (tanpa overlay)
-            if self.analyzer is not None and self.analyzer.detections:
-                frame = frame.copy()
+            mode = self.view_mode
+            if self.analyzer is not None and mode != "detection":
+                frame = self.heatmap.render(frame)      # sudah frame baru kalau ada panas
+            if self.analyzer is not None and mode != "trace" and self.analyzer.detections:
+                frame = frame if frame is not raw else frame.copy()
                 draw_detections(frame, self.analyzer.detections)
             if not good:
                 frame = frame if frame is not raw else frame.copy()

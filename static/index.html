@@ -59,6 +59,9 @@
   .inp{background:#12151b;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px}
   .inp:focus{outline:none;border-color:var(--acc)}
   .btn.on{border-color:var(--ok);color:var(--ok)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg .btn{border:0;border-radius:0;border-right:1px solid var(--line)} .seg .btn:last-child{border-right:0}
+  .seg .btn.on{background:#1f3b2a}
   .inp.num{width:64px;text-align:right}
   label.muted{display:inline-flex;align-items:center;gap:4px}
   .tbl{border-collapse:collapse;width:100%;font:12px ui-monospace,Consolas,monospace}
@@ -124,6 +127,20 @@
         <label class="muted" for="m-conf" style="min-width:90px">Confidence <b id="m-conf-v">0.40</b></label>
         <input type="range" id="m-conf" min="0.05" max="0.95" step="0.05" value="0.4" style="flex:1;min-width:120px;accent-color:var(--acc)">
       </div>
+      <div class="row" style="margin-top:8px">
+        <span class="muted" style="min-width:90px">Tampilan</span>
+        <span class="seg" id="v-seg">
+          <button class="btn" data-mode="detection" title="Kotak deteksi + label">Deteksi</button>
+          <button class="btn" data-mode="trace" title="Heatmap jejak aktivitas objek (ala Ultralytics Heatmap)">Trace</button>
+          <button class="btn" data-mode="both" title="Heatmap + kotak deteksi">Trace + Deteksi</button>
+        </span>
+        <span id="hm-opts" class="row" hidden>
+          <select id="hm-cmap" class="inp" title="Colormap heatmap"></select>
+          <label class="muted" title="Kepekatan heatmap di atas video">Opasitas <input type="range" id="hm-op" min="0.1" max="0.9" step="0.05" value="0.5" style="width:70px;vertical-align:middle;accent-color:var(--acc)"></label>
+          <label class="muted" title="Waktu paruh peluruhan jejak (detik). 0 = jejak menumpuk terus seperti di video Ultralytics">Fade <input id="hm-fade" class="inp num" type="number" min="0" max="600" step="1" value="0" style="width:52px"> s</label>
+          <button class="btn" id="hm-reset" title="Kosongkan heatmap, mulai dari nol">🧹 Reset</button>
+        </span>
+      </div>
       <div class="muted oneline" style="margin-top:6px">
         Status: <b id="m-stat">-</b> · <span id="m-dev">-</span> · Infer <b id="m-fps">0</b> fps · <b id="m-lat">0</b> ms
       </div>
@@ -186,10 +203,10 @@
         <div class="t"><div class="k">MAVLink</div><div class="v"><span id="rate">0</span><span class="u">msg/s</span></div><div class="muted">sysid <span id="sysid">-</span></div></div>
       </div>
       <div class="row" style="margin-top:8px">
-        <a class="btn" id="gmaps" href="#" target="_blank">🗺 Buka di Google Maps</a>
-        <button class="btn" id="copy">📋 Salin lat,lon</button>
-        <button class="btn" id="follow">🎯 Follow: ON</button>
-        <button class="btn" id="clear">🧹 Hapus jejak</button>
+        <a class="btn" id="gmaps" href="#" target="_blank">Buka di Google Maps</a>
+        <button class="btn" id="copy">Salin lat,lon</button>
+        <button class="btn" id="follow">Follow: ON</button>
+        <button class="btn" id="clear">Hapus jejak</button>
         <a class="btn" href="/export/telemetry.csv" download title="Unduh log telemetry sesi ini (CSV)">Download CSV <span class="muted" id="log-telem">0</span></a>
       </div>
     </div>
@@ -243,9 +260,9 @@ const droneIcon = L.divIcon({className:"", iconSize:[28,28], iconAnchor:[14,14],
 const marker = L.marker([0,0], {icon:droneIcon}).addTo(map);
 const track = L.polyline([], {color:"#4da3ff", weight:3, opacity:.8}).addTo(map);
 let follow = true, firstFix = true, lastPt = null;
-$("follow").onclick = () => { follow = !follow; $("follow").textContent = "🎯 Follow: " + (follow ? "ON" : "OFF"); };
+$("follow").onclick = () => { follow = !follow; $("follow").textContent = "Follow: " + (follow ? "ON" : "OFF"); };
 $("clear").onclick = () => track.setLatLngs([]);
-map.on("dragstart", () => { follow = false; $("follow").textContent = "🎯 Follow: OFF"; });
+map.on("dragstart", () => { follow = false; $("follow").textContent = "Follow: OFF"; });
 window.addEventListener("resize", () => map.invalidateSize());
 setTimeout(() => map.invalidateSize(), 100);
 
@@ -319,6 +336,33 @@ $("m-load").onclick = () => {
   send({cmd:"model_load", path, conf: parseFloat($("m-conf").value), imgsz: parseInt($("m-imgsz").value)});
 };
 $("m-off").onclick = () => send({cmd:"model_off"});
+
+// ---------- tampilan overlay: deteksi / trace (heatmap) / keduanya ----------
+let viewMode = null, hmTimer = null, hmDragging = false, cmapsFilled = false;
+$("v-seg").querySelectorAll("button").forEach(b => b.onclick = () => send({cmd:"view_set", mode: b.dataset.mode}));
+$("hm-cmap").onchange = () => send({cmd:"view_set", colormap: $("hm-cmap").value});
+$("hm-op").oninput = () => {
+  hmDragging = true; clearTimeout(hmTimer);
+  hmTimer = setTimeout(() => { send({cmd:"view_set", opacity: parseFloat($("hm-op").value)}); hmDragging = false; }, 150);
+};
+$("hm-fade").onchange = () => send({cmd:"view_set", fade_s: parseFloat($("hm-fade").value) || 0});
+$("hm-reset").onclick = () => send({cmd:"heat_reset"});
+function renderView(v){
+  if (!v) return;
+  if (v.mode !== viewMode) {
+    viewMode = v.mode;
+    $("v-seg").querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.mode === v.mode));
+    $("hm-opts").hidden = v.mode === "detection";
+  }
+  if (!cmapsFilled && v.colormaps) {
+    $("hm-cmap").innerHTML = v.colormaps.map(c => `<option value="${c}">${c}</option>`).join("");
+    cmapsFilled = true;
+  }
+  if (document.activeElement !== $("hm-cmap") && $("hm-cmap").value !== v.colormap) $("hm-cmap").value = v.colormap;
+  if (!hmDragging && Math.abs(parseFloat($("hm-op").value) - v.opacity) > 0.001) $("hm-op").value = v.opacity;
+  if (document.activeElement !== $("hm-fade") && parseFloat($("hm-fade").value) !== v.fade_s) $("hm-fade").value = v.fade_s;
+  $("hm-reset").disabled = !v.heat;
+}
 
 function fillModels(models){
   const sel = $("m-sel"), cur = sel.value;
@@ -520,12 +564,13 @@ function render(s){
   renderGeo(s.geo || {}, s.model.detections || []);
   renderTracks(s.tracks);
   renderRec(s.rec);
+  renderView(s.view);
   if (s.logs) { $("log-telem").textContent = s.logs.telemetry_rows; $("log-est").textContent = s.logs.estimate_rows; }
 
   if (s.fix_type < 2 || (s.lat === 0 && s.lon === 0)) s.lat = s.lon = null;  // belum ada fix GPS
   curLat = s.lat; curLon = s.lon;
-  $("lat").textContent = fmt(s.lat, 7); $("lon").textContent = fmt(s.lon, 7);
   $("gmaps").href = s.lat !== null ? `https://www.google.com/maps?q=${s.lat},${s.lon}` : "#";
+  $("lat").textContent = fmt(s.lat, 7); $("lon").textContent = fmt(s.lon, 7);
   updateMap(s.lat, s.lon, s.heading);
 
   $("alt_rel").textContent = fmt(s.alt_rel); $("alt_msl").textContent = fmt(s.alt_msl);
@@ -547,7 +592,7 @@ function connect(){
     else if (m.type === "ack") {
       if (m.result !== "ok") {
         if (m.cmd.startsWith("rec")) { $("rec-msg").textContent = m.result; $("rec-msg").hidden = false; return; }
-        const el = m.cmd.startsWith("model") ? $("m-stat") : m.cmd.startsWith("geo") ? $("g-pose") : m.cmd.startsWith("track") ? $("t-count") : $("tstat");
+        const el = m.cmd.startsWith("model") || m.cmd.startsWith("view") || m.cmd.startsWith("heat") ? $("m-stat") : m.cmd.startsWith("geo") ? $("g-pose") : m.cmd.startsWith("track") ? $("t-count") : $("tstat");
         el.textContent = m.result;
       }
     }

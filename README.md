@@ -75,17 +75,22 @@ diblokir, izinkan Python di Windows Firewall (jaringan privat).
 py -m venv .venv
 .venv\Scripts\activate
 
-# GPU NVIDIA (RTX 20xx ke atas, driver terbaru):
+# GPU NVIDIA baru (GTX 16xx, RTX 20xx s/d 50xx):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-# atau tanpa GPU:
+# GPU NVIDIA lama (GTX 750/900/10xx, MX/Quadro lama; compute capability < 7.5):
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# tanpa GPU NVIDIA (Intel/AMD/iGPU - jalan di laptop apa pun):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 pip install -r requirements.txt
 python server.py
 ```
 
-Catatan GPU: RTX 50xx (Blackwell) **wajib** build `cu128` atau lebih baru. RTX 20xx-40xx bisa `cu128`
-atau `cu124`. Cek dengan `python -c "import torch; print(torch.cuda.is_available())"`.
+Catatan GPU: `setup.ps1`/`setup.sh` memilih build ini otomatis dari `nvidia-smi --query-gpu=compute_cap`.
+RTX 50xx (Blackwell) **wajib** `cu128`; GPU dengan compute capability < 7.5 tidak punya kernel di `cu128`
+(error `no kernel image is available`) dan butuh `cu118`. Kalau build tidak cocok, server **tidak error**:
+deteksi otomatis pindah ke CPU (lihat pesan `[analyzer] ... -> pakai CPU` di konsol) - lebih lambat saja.
+Cek: `python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_arch_list())"`.
 
 ### Driver radio telemetry (CP210x)
 
@@ -114,7 +119,7 @@ chmod +x setup.sh run.sh
 Setup manual (opsional): `bash setup.sh` (tambah `--cpu` untuk paksa torch CPU). Skrip ini juga:
 
 - memasang `libgl1`/`libglib2.0-0` yang dibutuhkan OpenCV (Debian/Ubuntu);
-- memasang torch **CUDA** kalau `nvidia-smi` ada, kalau tidak torch CPU;
+- memasang torch **CUDA** kalau `nvidia-smi` ada (build sesuai generasi GPU), kalau tidak torch CPU;
 - menambahkan user ke grup `dialout` (serial) dan `video` (kamera). **Logout/login sekali** setelahnya.
 
 Driver CP210x / FTDI / CH340 **sudah bawaan kernel Linux**, tidak perlu install apa pun. Radio muncul sebagai
@@ -146,6 +151,19 @@ py server.py --help                      # semua opsi
 Semua pengaturan (sumber telemetry, model, confidence, HFOV/tilt kamera, radius pelacakan) bisa diubah dari
 halaman web tanpa restart dan tersimpan ke `config.json`.
 
+### Mode tampilan video (kartu "Model deteksi" -> Tampilan)
+
+| Mode | Yang digambar di video |
+|---|---|
+| **Deteksi** | kotak deteksi + label + estimasi jarak/koordinat (default) |
+| **Trace** | heatmap jejak aktivitas objek ala [Ultralytics Heatmap](https://docs.ultralytics.com/guides/heatmaps/): tiap deteksi menambah "panas" di posisinya, makin lama objek berada di satu tempat makin terang warnanya |
+| **Trace + Deteksi** | keduanya |
+
+Opsi heatmap: colormap (parula/jet/turbo/...), opasitas, **Fade** = waktu paruh peluruhan jejak dalam detik
+(0 = jejak menumpuk terus seperti di video Ultralytics; misal 30 = jejak lama memudar separuh tiap 30 s,
+cocok untuk siaran drone yang terus berjalan), dan tombol **Reset** untuk mengosongkan heatmap.
+Rekaman video (tombol Rekam) ikut merekam tampilan sesuai mode yang aktif.
+
 ### Pengaturan flight controller (ArduPilot) untuk radio di TELEM1
 
 | Parameter | Nilai |
@@ -167,7 +185,8 @@ Radio darat dan udara harus punya `NETID` sama dan `SERIAL_SPEED=57`.
 | Telemetry `waiting` terus | Radio belum tercolok / driver CP210x belum terpasang (lihat di atas). |
 | Telemetry `connecting` / tidak ada heartbeat, padahal COM ada | Drone mati, radio udara belum link (LED hijau solid = link), kabel TX/RX ke FC terbalik, atau baud FC tidak 57600. |
 | Port COM "Access is denied" | Dipakai Mission Planner. Tutup MP, atau pakai MAVLink Mirror MP -> pilih UDP di web. |
-| Model `error: ...` saat load | `ultralytics`/`torch` belum terpasang, atau torch tidak cocok GPU -> jalankan ulang `setup.ps1` / `setup.sh`. |
+| Model `error: ...` saat load | `ultralytics`/`torch` belum terpasang -> jalankan ulang `setup.ps1` / `setup.sh`. |
+| Konsol: `GPU ... tidak didukung torch ... -> pakai CPU` | Deteksi tetap jalan (di CPU). Supaya pakai GPU: jalankan ulang `setup.ps1` / `setup.sh` (memilih build torch sesuai GPU, download ~2.5 GB). |
 | Video blue screen | Sinyal 5.8 GHz hilang; server otomatis menahan frame terakhir dan memberi label merah. |
 | Lat/lon objek "belum ada GPS" | Drone belum fix GPS (di dalam ruangan). Untuk uji pakai "pose manual" di kartu Estimasi. |
 

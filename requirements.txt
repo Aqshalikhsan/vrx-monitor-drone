@@ -9,5 +9,6 @@ pyserial>=3.5
 
 # Deteksi objek (.pt). ultralytics menarik torch versi CPU secara default.
 # Untuk GPU NVIDIA, install torch CUDA DULU sebelum baris ini (lihat setup.ps1 / README.md):
-#   py -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   py -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128   (GPU compute capability >= 7.5)
+#   py -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118   (GPU lama: GTX 750/900/10xx)
 ultralytics>=8.3
