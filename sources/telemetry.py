@@ -23,6 +23,7 @@ def _empty_state():
         "alt_msl": None, "alt_rel": None,   # meter
         "heading": None,                    # derajat
         "groundspeed": None, "airspeed": None, "climb": None,  # m/s
+        "vn": None, "ve": None, "vd": None,  # kecepatan tanah NED m/s (dari GLOBAL_POSITION_INT)
         "throttle": None,                   # %
         "roll": None, "pitch": None, "yaw": None,  # derajat
         "fix_type": 0, "sats": 0, "hdop": None,
@@ -266,7 +267,8 @@ class TelemetrySource(threading.Thread):
             elif t == "GLOBAL_POSITION_INT":
                 self._update(lat=msg.lat / 1e7, lon=msg.lon / 1e7,
                              alt_msl=msg.alt / 1000.0, alt_rel=msg.relative_alt / 1000.0,
-                             heading=msg.hdg / 100.0 if msg.hdg != 65535 else None)
+                             heading=msg.hdg / 100.0 if msg.hdg != 65535 else None,
+                             vn=msg.vx / 100.0, ve=msg.vy / 100.0, vd=msg.vz / 100.0)
             elif t == "GPS_RAW_INT":
                 self._update(fix_type=msg.fix_type, sats=msg.satellites_visible,
                              hdop=msg.eph / 100.0 if msg.eph != 65535 else None)
@@ -301,7 +303,8 @@ class TelemetrySource(threading.Thread):
                 lat=lat0 + r * math.sin(a),
                 lon=lon0 + r * math.cos(a) / math.cos(math.radians(lat0)),
                 alt_rel=50 + 5 * math.sin(t / 3), alt_msl=58 + 5 * math.sin(t / 3),
-                heading=(math.degrees(a) + 90) % 360, yaw=(math.degrees(a) + 90) % 360,
+                heading=-math.degrees(a) % 360, yaw=-math.degrees(a) % 360,   # searah lintasan (vn, ve)
+                vn=22.5 * math.cos(a), ve=-22.5 * math.sin(a), vd=-1.6 * math.cos(t / 3),
                 groundspeed=22.5, airspeed=23.1, climb=1.6 * math.cos(t / 3), throttle=55,
                 roll=25 + 3 * math.sin(t), pitch=2 * math.sin(t / 2),
                 volt=15.8 - t * 0.002, current=12.3, batt_pct=max(0, int(95 - t / 10)),

@@ -4,12 +4,13 @@ Pelacakan objek dengan ID terkunci (lock) dan penyimpanan permanen.
 Aturan:
   - Begitu sebuah objek terlihat, langsung dicatat sebagai objek baru (#1, #2, ...), walau
     lat/lon belum tersedia (lokasi diisi saat pertama kali ada estimasi GPS).
-  - Lokasi objek = lat/lon saat PERTAMA kali ada estimasi (anchor). Itulah yang dilaporkan.
+  - Lokasi yang dilaporkan (lat/lon di snapshot) = estimasi TERKINI: objek yang bergerak diikuti real time.
+    Lokasi pertama kali ada estimasi (anchor) tetap disimpan sebagai first_lat/first_lon.
   - Deteksi berikutnya dianggap objek yang sama (ID tetap) kalau salah satu terpenuhi:
       a. kotak deteksi tumpang tindih dengan kotak terakhir objek yang baru saja terlihat
          (IoU >= iou_min, terakhir terlihat <= iou_window_s) -> kontinuitas visual
-      b. lat/lon deteksi berada dalam radius R (default 3 m) dari anchor objek
-    Objek boleh bergerak ke kanan/kiri selama masih di dalam radius.
+      b. lat/lon deteksi berada dalam radius R (default 3 m) dari posisi terakhir ATAU anchor objek
+    Objek boleh terus bergerak selama tiap langkah antar-deteksi masih di dalam radius.
   - Pencocokan satu-ke-satu (greedy, yang paling cocok dulu).
   - Objek TIDAK PERNAH dihapus otomatis (kecuali expire_s > 0 diset). Daftar disimpan ke file
     JSON dan dimuat kembali saat server start.
@@ -61,9 +62,9 @@ class Track:
         self.lat = self.lon = None          # anchor: lokasi pertama kali ada estimasi
         self.located_at = None
         self.first_seen = self.last_seen = now
-        self.last_lat = self.last_lon = None
         self.hits = 1
         self.max_conf = conf
+        self.last_lat = self.last_lon = None  # posisi terkini (estimasi terakhir) -> yang dilaporkan
         self.moved_m = 0.0                  # jarak posisi terakhir dari anchor
         self.max_moved_m = 0.0
         self.last_box = list(box)
@@ -234,7 +235,7 @@ class ObjectTracker:
                 pool[k].hit(dets[i], now)
                 dets[i]["track_id"] = pool[k].id
 
-            # (b) lokasi: dalam radius dari anchor
+            # (b) lokasi: dalam radius dari posisi terakhir (objek bergerak) atau dari anchor (lokasi pertama)
             pairs = []
             for i, d in enumerate(dets):
                 if i in used_det:
@@ -248,6 +249,8 @@ class ObjectTracker:
                     if self.match_label and t.label != d["label"]:
                         continue
                     dm = dist_m(g["lat"], g["lon"], t.lat, t.lon)
+                    if t.last_lat is not None:
+                        dm = min(dm, dist_m(g["lat"], g["lon"], t.last_lat, t.last_lon))
                     if dm <= self.radius_m:
                         pairs.append((dm, i, k))
             pairs.sort()
@@ -256,7 +259,7 @@ class ObjectTracker:
                     continue
                 used_det.add(i)
                 used_trk.add(k)
-                pool[k].hit(dets[i], now, geo_dist=dm)
+                pool[k].hit(dets[i], now)
                 dets[i]["track_id"] = pool[k].id
 
             # (c) sisanya -> kandidat baru (belum dapat ID sampai terlihat min_hits kali)
@@ -298,12 +301,14 @@ class ObjectTracker:
             items = []
             for t in sorted(self._tracks.values(), key=lambda t: t.id):
                 age = now - (t.last_seen or 0)
+                cur_lat, cur_lon = (t.last_lat, t.last_lon) if t.last_lat is not None else (t.lat, t.lon)
                 items.append({
                     "id": t.id, "label": t.label,
-                    "lat": round(t.lat, 7) if t.lat is not None else None,
-                    "lon": round(t.lon, 7) if t.lon is not None else None,
-                    "last_lat": round(t.last_lat, 7) if t.last_lat is not None else None,
-                    "last_lon": round(t.last_lon, 7) if t.last_lon is not None else None,
+                    # lat/lon = posisi terkini (ikut objek bergerak); first_* = lokasi pertama (anchor)
+                    "lat": round(cur_lat, 7) if cur_lat is not None else None,
+                    "lon": round(cur_lon, 7) if cur_lon is not None else None,
+                    "first_lat": round(t.lat, 7) if t.lat is not None else None,
+                    "first_lon": round(t.lon, 7) if t.lon is not None else None,
                     "status": "seen" if age < self.lost_s else "locked",
                     "since_s": round(age, 1),
                     "first_seen": t.first_seen, "last_seen": t.last_seen, "located_at": t.located_at,

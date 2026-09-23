@@ -104,6 +104,11 @@ COLORMAPS = {
 }
 VIEW_MODES = ("detection", "trace", "both")
 
+# >>> ATUR DI SINI: waktu (detik) sampai jejak trace hilang setelah objek tidak ada lagi di posisi itu.
+# Tiap piksel jejak dihapus kalau sudah TRACE_CLEAR_S detik tidak dilewati objek, jadi begitu objek
+# keluar frame seluruh jejaknya hilang dalam TRACE_CLEAR_S detik. 0 = jejak tidak pernah hilang.
+TRACE_CLEAR_S = 5.0
+
 
 class Heatmap:
     """
@@ -115,29 +120,37 @@ class Heatmap:
              kamera tidak mempengaruhi kecepatan akumulasi)
     render() dipanggil VideoSource tiap frame kamera; hasil colormap di-cache sampai akumulator berubah
     fade_s   waktu paruh (detik) peluruhan panas; 0 = tanpa peluruhan (persis seperti video Ultralytics)
+    clear_s  piksel yang tidak dilewati objek selama clear_s detik dihapus (lihat TRACE_CLEAR_S)
     """
 
-    def __init__(self, colormap="parula", opacity=0.5, fade_s=0.0):
+    def __init__(self, colormap="parula", opacity=0.5, fade_s=0.0, clear_s=TRACE_CLEAR_S):
         self._lock = threading.Lock()
         self._acc = None       # float32 HxW
+        self._stamp = None     # float32 HxW: waktu terakhir piksel dipanaskan (detik sejak _t0)
+        self._t0 = 0.0
+        self._last_expire = 0.0
         self._ver = 0          # naik tiap akumulator berubah -> cache colormap kadaluarsa
         self._cache = None     # (ver, colormap, BGR uint8)
         self._last_add = None
         self.colormap = colormap if colormap in COLORMAPS else "parula"
         self.opacity = float(opacity)
         self.fade_s = float(fade_s)
+        self.clear_s = float(clear_s)
 
-    def set(self, colormap=None, opacity=None, fade_s=None):
+    def set(self, colormap=None, opacity=None, fade_s=None, clear_s=None):
         if colormap is not None and colormap in COLORMAPS:
             self.colormap = colormap
         if opacity is not None:
             self.opacity = min(max(float(opacity), 0.05), 0.95)
         if fade_s is not None:
             self.fade_s = max(0.0, float(fade_s))
+        if clear_s is not None:
+            self.clear_s = min(max(0.0, float(clear_s)), 600.0)
 
     def reset(self):
         with self._lock:
             self._acc = None
+            self._stamp = None
             self._cache = None
             self._ver += 1
 
@@ -153,6 +166,8 @@ class Heatmap:
         with self._lock:
             if self._acc is None or self._acc.shape != (h, w):
                 self._acc = np.zeros((h, w), np.float32)   # resolusi kamera berubah -> mulai ulang
+                self._stamp = np.zeros((h, w), np.float32)
+                self._t0 = now
             elif self.fade_s > 0 and self._last_add is not None:
                 dt = now - self._last_add
                 if dt > 0:
@@ -168,13 +183,26 @@ class Heatmap:
                 xv, yv = np.meshgrid(np.arange(x1, x2), np.arange(y1, y2))
                 inside = (xv - (x1 + x2) // 2) ** 2 + (yv - (y1 + y2) // 2) ** 2 <= r2
                 self._acc[y1:y2, x1:x2][inside] += 2
+                self._stamp[y1:y2, x1:x2][inside] = now - self._t0
             if dets:
                 self._ver += 1
+            self._expire_locked(now)
+
+    def _expire_locked(self, now):
+        """Hapus jejak yang sudah clear_s detik tidak dilewati objek. Dicek maks 5x per detik."""
+        if self.clear_s <= 0 or self._acc is None or now - self._last_expire < 0.2:
+            return
+        self._last_expire = now
+        stale = (self._stamp < now - self._t0 - self.clear_s) & (self._acc > 0)
+        if stale.any():
+            self._acc[stale] = 0
+            self._ver += 1
 
     def _colored(self):
         """BGR colormap dari akumulator (cache per versi), None kalau belum ada panas."""
         import numpy as np
         with self._lock:
+            self._expire_locked(time.time())   # jejak tetap hilang walau analyzer tidak jalan (sinyal hilang)
             acc, ver = self._acc, self._ver
             if acc is None:
                 return None
