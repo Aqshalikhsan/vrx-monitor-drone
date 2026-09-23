@@ -161,8 +161,27 @@ halaman web tanpa restart dan tersimpan ke `config.json`.
 
 Opsi heatmap: colormap (parula/jet/turbo/...), opasitas, **Fade** = waktu paruh peluruhan jejak dalam detik
 (0 = jejak menumpuk terus seperti di video Ultralytics; misal 30 = jejak lama memudar separuh tiap 30 s,
-cocok untuk siaran drone yang terus berjalan), dan tombol **Reset** untuk mengosongkan heatmap.
+cocok untuk siaran drone yang terus berjalan), **Hilang** = jejak dihapus setelah objek tidak ada di
+posisinya selama sekian detik (default 5 s, 0 = tidak pernah; default kode di `TRACE_CLEAR_S`,
+`sources/video.py`), dan tombol **Reset** untuk mengosongkan heatmap.
 Rekaman video (tombol Rekam) ikut merekam tampilan sesuai mode yang aktif.
+
+### Dropping barang (kartu "Dropping barang")
+
+Pilih objek sasaran dari dropdown, tombol 🎯 di tabel Objek terlacak, atau klik marker objek di peta
+(klik lagi / **✕ Batal** untuk membatalkan). Setelah dipilih, peta menampilkan:
+
+- garis merah putus-putus drone -> objek dengan label jarak horizontal,
+- lingkaran toleransi di sekitar objek (hijau saat siap drop),
+- titik hijau = **titik rilis** (drone harus berada di sini saat drop) + garis drone -> titik rilis,
+- lingkaran oranye = titik jatuh barang kalau di-drop **sekarang**.
+
+Barang yang dilepas masih membawa kecepatan drone, jadi jatuh di depan titik pelepasan sejauh
+`lead = v * (jeda + faktor_lontar * t_jatuh)`, dengan `t_jatuh = (climb + sqrt(climb² + 2·g·h)) / g`.
+Status **DROP SEKARANG** muncul saat titik jatuh prediksi berada dalam radius toleransi dari objek.
+Parameter: **Jeda** (latensi mekanisme pelepas), **Faktor lontar** (1 = tanpa hambatan udara; kalibrasi
+dengan uji jatuh: jarak nyata / jarak hitung), **Toleransi** (m). Perhitungan ada di `sources/drop.py`.
+Posisi objek = posisi terkini dari tracker (sasaran ikut bergerak); tinggi = `alt_rel` (tanah dianggap setinggi home).
 
 ### Pengaturan flight controller (ArduPilot) untuk radio di TELEM1
 

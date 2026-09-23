@@ -27,6 +27,7 @@ Endpoint:
 import argparse
 import asyncio
 import json
+import math
 import os
 import sys
 import time
@@ -38,6 +39,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from sources import logger as csvlog
+from sources.drop import DropPlanner
 from sources.geolocate import Geolocator
 from sources.telemetry import TelemetrySource, list_ports, snapshot_empty
 from sources.tracker import ObjectTracker
@@ -101,7 +103,7 @@ geo = Geolocator(pose_fn=lambda: telemetry.snapshot() if telemetry else {},
                  manual=load_config().get("geo", {}).get("manual"))
 
 
-# pelacak objek: deteksi dalam radius R dari lokasi pertama = objek yang sama
+# pelacak objek: deteksi dalam radius R dari posisi terakhir / lokasi pertama = objek yang sama
 _tcfg = load_config().get("track", {})
 TRACKS_PATH = os.path.join(HERE, "tracks.json")   # daftar objek terlacak, permanen antar restart
 LOGS_DIR = os.path.join(HERE, "logs")
@@ -139,6 +141,30 @@ def track_set(cmd):
     return "ok"
 
 
+# dropping barang: objek sasaran dipilih dari web, titik rilis dihitung dari pose + kecepatan drone
+drop = DropPlanner(load_config().get("drop"))
+
+
+def drop_set(cmd):
+    drop.set(cmd.get("delay_s"), cmd.get("carry"), cmd.get("tol_m"))
+    save_config(drop=drop.params())
+    return "ok"
+
+
+def drop_snapshot(s):
+    """s = state telemetry. Pose (termasuk pose manual) dari Geolocator; manual = drone dianggap diam."""
+    pose = geo.current_pose()
+    if pose.get("source") == "manual" or s.get("vn") is None:
+        vel = (0.0, 0.0, 0.0)
+        if pose.get("source") != "manual" and s.get("groundspeed") is not None and s.get("heading") is not None:
+            # FC belum kirim vektor kecepatan: pakai groundspeed + heading
+            h = math.radians(s["heading"])
+            vel = (s["groundspeed"] * math.cos(h), s["groundspeed"] * math.sin(h), -(s.get("climb") or 0.0))
+    else:
+        vel = (s["vn"], s["ve"], s["vd"] or 0.0)
+    return drop.snapshot(pose, vel, s["tracks"]["tracks"])
+
+
 def geo_set(cmd):
     kw = {k: cmd[k] for k in ("hfov", "vfov", "tilt", "pan", "use_attitude", "anchor") if k in cmd}
     if "manual" in cmd:
@@ -166,16 +192,17 @@ def view_set(cmd):
     cm = cmd.get("colormap")
     if cm is not None and cm not in COLORMAPS:
         return f"colormap harus salah satu dari {', '.join(COLORMAPS)}"
-    video.heatmap.set(colormap=cm, opacity=cmd.get("opacity"), fade_s=cmd.get("fade_s"))
+    video.heatmap.set(colormap=cm, opacity=cmd.get("opacity"), fade_s=cmd.get("fade_s"), clear_s=cmd.get("clear_s"))
     hm = video.heatmap
-    save_config(view={"mode": video.view_mode, "colormap": hm.colormap, "opacity": hm.opacity, "fade_s": hm.fade_s})
+    save_config(view={"mode": video.view_mode, "colormap": hm.colormap, "opacity": hm.opacity, "fade_s": hm.fade_s,
+                      "clear_s": hm.clear_s})
     return "ok"
 
 
 def view_snapshot():
     hm = video.heatmap
     return {"mode": video.view_mode, "colormap": hm.colormap, "opacity": hm.opacity, "fade_s": hm.fade_s,
-            "heat": hm.active, "colormaps": list(COLORMAPS)}
+            "clear_s": hm.clear_s, "heat": hm.active, "colormaps": list(COLORMAPS)}
 
 
 class ModelManager:
@@ -365,6 +392,7 @@ def build_state():
     s["model"] = model.snapshot()
     s["geo"] = geo.snapshot()
     s["tracks"] = tracker.snapshot()
+    s["drop"] = drop_snapshot(s)
     s["rec"] = recorder.snapshot()
     s["view"] = view_snapshot()
     s["logs"] = {"telemetry_rows": telem_log.rows if telem_log else 0,
@@ -383,7 +411,8 @@ async def lifespan(app):
     vcfg = load_config().get("view", {})
     if vcfg.get("mode") in VIEW_MODES:
         video.view_mode = vcfg["mode"]
-    video.heatmap.set(colormap=vcfg.get("colormap"), opacity=vcfg.get("opacity"), fade_s=vcfg.get("fade_s"))
+    video.heatmap.set(colormap=vcfg.get("colormap"), opacity=vcfg.get("opacity"), fade_s=vcfg.get("fade_s"),
+                      clear_s=vcfg.get("clear_s"))
 
     # model awal: argumen --model/--no-model > config.json (pengaturan terakhir dari web) > models/best.pt jika ada
     cfg = load_config()
@@ -556,7 +585,10 @@ def handle_command(cmd: dict) -> dict:
       {"cmd":"rec_stop"}
       {"cmd":"view_set","mode":"trace"}                                          tampilan: detection | trace | both
       {"cmd":"view_set","colormap":"jet","opacity":0.5,"fade_s":0}               opsi heatmap (fade_s 0 = tanpa peluruhan)
+      {"cmd":"view_set","clear_s":5}                                             trace hilang N s setelah objek pergi (0 = tidak pernah)
       {"cmd":"heat_reset"}                                                       kosongkan heatmap
+      {"cmd":"drop_target","id":3}                                               pilih objek sasaran drop (id null = batal)
+      {"cmd":"drop_set","delay_s":0.3,"carry":1.0,"tol_m":3}                     parameter drop
     """
     c = cmd.get("cmd")
     if c == "connect":
@@ -594,6 +626,11 @@ def handle_command(cmd: dict) -> dict:
     if c == "heat_reset":
         video.heatmap.reset()
         return {"type": "ack", "cmd": c, "result": "ok"}
+    if c == "drop_target":
+        drop.select(cmd.get("id"))
+        return {"type": "ack", "cmd": c, "result": "ok"}
+    if c == "drop_set":
+        return {"type": "ack", "cmd": c, "result": drop_set(cmd)}
     return {"type": "ack", "cmd": c, "result": "perintah tidak dikenal"}
 
 

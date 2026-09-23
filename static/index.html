@@ -74,6 +74,18 @@
   /* tinggi tabel DIKUNCI (bukan max-height): jumlah baris berubah tiap frame -> isi scroll, kartu lain tidak bergeser */
   .scroll.tracks{height:150px}
   .scroll.geo{height:96px}
+  /* dropping */
+  .drop-st{margin-top:6px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);font:700 14px/1.3 system-ui,sans-serif;text-align:center;letter-spacing:.3px}
+  .drop-st.ready{background:#1f3b2a;border-color:var(--ok);color:var(--ok);animation:pulse .6s ease-in-out infinite alternate}
+  .drop-st.approach{color:var(--acc);border-color:var(--acc)}
+  .drop-st.offtrack{color:var(--warn);border-color:var(--warn)}
+  .drop-st.passed{color:var(--bad);border-color:var(--bad)}
+  .drop-st.noalt,.drop-st.nogps{color:var(--dim)}
+  @keyframes pulse{to{background:#2a5c3d}}
+  .tbl tr.sel td{background:#2a2412}
+  .btn.tgt.on{border-color:var(--bad);color:var(--bad)}
+  .leaflet-tooltip.drop-tip{background:rgba(0,0,0,.78);color:#fff;border:0;font:700 12px system-ui;box-shadow:none}
+  .leaflet-tooltip.drop-tip::before{display:none}
   /* layar pendek (laptop 768p): mode kompak supaya tetap pas satu layar */
   @media (max-height:820px){
     main{gap:8px;padding:8px} .col{gap:8px}
@@ -138,6 +150,7 @@
           <select id="hm-cmap" class="inp" title="Colormap heatmap"></select>
           <label class="muted" title="Kepekatan heatmap di atas video">Opasitas <input type="range" id="hm-op" min="0.1" max="0.9" step="0.05" value="0.5" style="width:70px;vertical-align:middle;accent-color:var(--acc)"></label>
           <label class="muted" title="Waktu paruh peluruhan jejak (detik). 0 = jejak menumpuk terus seperti di video Ultralytics">Fade <input id="hm-fade" class="inp num" type="number" min="0" max="600" step="1" value="0" style="width:52px"> s</label>
+          <label class="muted" title="Jejak hilang setelah objek tidak ada di posisinya selama sekian detik. 0 = jejak tidak pernah hilang">Hilang <input type="range" id="hm-clear" min="0" max="30" step="1" value="5" style="width:90px;vertical-align:middle;accent-color:var(--acc)"> <span id="hm-clear-v" style="display:inline-block;min-width:26px">5 s</span></label>
           <button class="btn" id="hm-reset" title="Kosongkan heatmap, mulai dari nol">🧹 Reset</button>
         </span>
       </div>
@@ -155,7 +168,7 @@
         <button class="btn" id="t-clear">Hapus semua</button>
         <a class="btn" href="/export/tracks.csv" download title="Unduh daftar objek terlacak sebagai CSV">Download CSV</a>
       </div>
-      <div class="muted hint" style="margin-top:6px">Objek dicatat begitu terlihat dan ID-nya <b>dikunci</b>: deteksi dalam radius dari lokasi <b>pertama kali</b> (atau kotak yang berkesinambungan di video) = objek yang sama. Koordinat yang dilaporkan = lokasi pertama. Daftar tersimpan permanen (tracks.json) sampai dihapus manual.</div>
+      <div class="muted hint" style="margin-top:6px">Objek dicatat begitu terlihat dan ID-nya <b>dikunci</b>: deteksi dalam radius dari posisi <b>terakhir</b> objek (atau kotak yang berkesinambungan di video) = objek yang sama. Koordinat yang dilaporkan = posisi <b>terkini</b> (ikut objek bergerak). Daftar tersimpan permanen (tracks.json) sampai dihapus manual.</div>
       <div class="scroll tracks">
         <table class="tbl" id="t-tbl">
           <thead><tr><th>ID</th><th>Objek</th><th>Status</th><th>Latitude</th><th>Longitude</th><th>Terlihat</th><th>Geser</th><th>Conf maks</th><th>Pertama</th><th>Terakhir</th><th></th></tr></thead>
@@ -166,6 +179,28 @@
   </div>
   <div class="col">
     <div id="map"></div>
+    <div class="card">
+      <h2>Dropping barang</h2>
+      <div class="row">
+        <label class="muted">Sasaran <select id="d-sel" class="inp"><option value="">— pilih objek —</option></select></label>
+        <button class="btn" id="d-cancel" title="Batalkan sasaran">✕ Batal</button>
+        <label class="muted" title="Jeda mekanisme pelepas: dari perintah drop sampai barang benar-benar lepas">Jeda <input id="d-delay" class="inp num" type="number" min="0" max="5" step="0.05" value="0.3" style="width:56px"> s</label>
+        <label class="muted" title="Faktor hambatan udara 0..1. 1 = barang padat/berat (tanpa hambatan). Kalibrasi: jarak jatuh nyata / jarak hitung">Faktor lontar <input id="d-carry" class="inp num" type="number" min="0" max="1" step="0.05" value="1" style="width:56px"></label>
+        <label class="muted" title="Barang dianggap tepat kalau titik jatuh prediksi berada dalam radius ini dari objek">Toleransi <input id="d-tol" class="inp num" type="number" min="0.5" max="100" step="0.5" value="3" style="width:56px"> m</label>
+      </div>
+      <div class="muted" id="d-empty" style="margin-top:6px">Pilih objek sasaran dari daftar di atas, tombol 🎯 di tabel <i>Objek terlacak</i>, atau klik marker objek di peta.</div>
+      <div id="d-body" hidden>
+        <div class="drop-st" id="d-st">-</div>
+        <div class="grid" style="margin-top:6px">
+          <div class="t"><div class="k">Sasaran</div><div class="v" id="d-tgt">-</div></div>
+          <div class="t"><div class="k">Jarak ke objek</div><div class="v"><span id="d-dist">-</span><span class="u">m</span></div><div class="muted">miring <span id="d-slant">-</span> m</div></div>
+          <div class="t"><div class="k">Arah ke objek</div><div class="v"><span id="d-brg">-</span><span class="u">°</span></div><div class="muted">lintasan <span id="d-course">-</span>°</div></div>
+          <div class="t" title="Jarak drone ke titik rilis = seberapa jauh barang meleset kalau di-drop sekarang"><div class="k">Ke titik rilis</div><div class="v"><span id="d-miss">-</span><span class="u">m</span></div><div class="muted">ETA <span id="d-eta">-</span> s</div></div>
+          <div class="t" title="Posisi titik rilis relatif lintasan drone"><div class="k">Geser samping</div><div class="v"><span id="d-cross">-</span><span class="u">m</span></div><div class="muted">depan <span id="d-along">-</span> m</div></div>
+          <div class="t" title="Barang terbawa maju sejauh ini setelah dilepas"><div class="k">Lead (jatuh maju)</div><div class="v"><span id="d-lead">-</span><span class="u">m</span></div><div class="muted">jatuh <span id="d-tfall">-</span> s · alt <span id="d-alt">-</span> m</div></div>
+        </div>
+      </div>
+    </div>
     <div class="card">
       <h2>Koneksi telemetry</h2>
       <div class="row">
@@ -347,6 +382,13 @@ $("hm-op").oninput = () => {
 };
 $("hm-fade").onchange = () => send({cmd:"view_set", fade_s: parseFloat($("hm-fade").value) || 0});
 $("hm-reset").onclick = () => send({cmd:"heat_reset"});
+let clearTimer = null, clearDragging = false;
+const clearLabel = s => s > 0 ? `${s} s` : "∞";
+$("hm-clear").oninput = () => {
+  clearDragging = true; clearTimeout(clearTimer);
+  $("hm-clear-v").textContent = clearLabel(parseFloat($("hm-clear").value));
+  clearTimer = setTimeout(() => { send({cmd:"view_set", clear_s: parseFloat($("hm-clear").value)}); clearDragging = false; }, 150);
+};
 function renderView(v){
   if (!v) return;
   if (v.mode !== viewMode) {
@@ -361,6 +403,10 @@ function renderView(v){
   if (document.activeElement !== $("hm-cmap") && $("hm-cmap").value !== v.colormap) $("hm-cmap").value = v.colormap;
   if (!hmDragging && Math.abs(parseFloat($("hm-op").value) - v.opacity) > 0.001) $("hm-op").value = v.opacity;
   if (document.activeElement !== $("hm-fade") && parseFloat($("hm-fade").value) !== v.fade_s) $("hm-fade").value = v.fade_s;
+  if (!clearDragging && v.clear_s != null && parseFloat($("hm-clear").value) !== v.clear_s) {
+    $("hm-clear").value = v.clear_s;
+    $("hm-clear-v").textContent = clearLabel(v.clear_s);
+  }
   $("hm-reset").disabled = !v.heat;
 }
 
@@ -484,20 +530,99 @@ function renderTracks(tr){
     seen.add(t.id);
     const tip = `#${t.id} ${t.label} · ${t.status === "seen" ? "terlihat" : "terkunci"} · ${t.lat.toFixed(6)}, ${t.lon.toFixed(6)} · ${t.hits}x`;
     let m = trackMarkers[t.id];
-    if (!m) { m = trackMarkers[t.id] = {marker: L.marker([t.lat, t.lon], {icon: trackIcon(t.id, t.status)}).addTo(trackLayer).bindTooltip(tip, {direction:"top"}), status: t.status}; }
-    else { if (m.status !== t.status) { m.marker.setIcon(trackIcon(t.id, t.status)); m.status = t.status; } m.marker.setTooltipContent(tip); }
+    if (!m) {
+      m = trackMarkers[t.id] = {marker: L.marker([t.lat, t.lon], {icon: trackIcon(t.id, t.status)}).addTo(trackLayer).bindTooltip(tip, {direction:"top"}), status: t.status};
+      m.marker.on("click", () => selectTarget(t.id));   // klik marker = pilih sebagai sasaran drop
+    }
+    else {
+      if (m.status !== t.status) { m.marker.setIcon(trackIcon(t.id, t.status)); m.status = t.status; }
+      m.marker.setLatLng([t.lat, t.lon]).setTooltipContent(tip);   // ikut posisi terkini objek
+    }
   });
   Object.keys(trackMarkers).forEach(id => { if (!seen.has(+id)) { trackLayer.removeLayer(trackMarkers[id].marker); delete trackMarkers[id]; } });
 
   const tb = $("t-tbl").querySelector("tbody");
   if (!tr.tracks.length) { tb.innerHTML = '<tr><td colspan="11" class="muted">belum ada objek terlacak</td></tr>'; return; }
-  tb.innerHTML = tr.tracks.map(t => `<tr>
+  tb.innerHTML = tr.tracks.map(t => `<tr${t.id === dropTarget ? ' class="sel"' : ""}>
     <td><b>#${t.id}</b></td><td>${t.label}</td>
     <td style="color:${t.status === "seen" ? "var(--ok)" : "var(--warn)"}">${t.status === "seen" ? "terlihat" : "terkunci · " + fmtAge(t.since_s)}</td>
-    <td>${t.lat === null ? '<span class="muted">belum ada</span>' : t.lat.toFixed(7)}</td><td>${t.lon === null ? '<span class="muted">GPS</span>' : t.lon.toFixed(7)}</td><td>${t.hits}x</td>
+    <td title="${t.first_lat === null ? "" : "posisi terkini · lokasi pertama " + t.first_lat.toFixed(7)}">${t.lat === null ? '<span class="muted">belum ada</span>' : t.lat.toFixed(7)}</td><td title="${t.first_lon === null ? "" : "posisi terkini · lokasi pertama " + t.first_lon.toFixed(7)}">${t.lon === null ? '<span class="muted">GPS</span>' : t.lon.toFixed(7)}</td><td>${t.hits}x</td>
     <td title="geser terakhir / maksimum dari lokasi pertama">${t.lat === null ? "-" : t.moved_m + " / " + t.max_moved_m + " m"}</td>
     <td>${t.max_conf}</td><td>${hhmmss(t.first_seen)}</td><td>${hhmmss(t.last_seen)}</td>
-    <td><button class="btn" style="padding:1px 6px" onclick="removeTrack(${t.id})" title="hapus objek ini">x</button></td></tr>`).join("");
+    <td>${t.lat === null ? "" : `<button class="btn tgt${t.id === dropTarget ? " on" : ""}" style="padding:1px 6px" onclick="selectTarget(${t.id})" title="${t.id === dropTarget ? "batalkan sasaran drop" : "jadikan sasaran drop"}">🎯</button> `}<button class="btn" style="padding:1px 6px" onclick="removeTrack(${t.id})" title="hapus objek ini">x</button></td></tr>`).join("");
+}
+
+// ---------- dropping barang ----------
+let dropTarget = null, dropSynced = false, dropTimer = null, dropOptsKey = "", lastTracks = [];
+function selectTarget(id){ send({cmd:"drop_target", id: id === dropTarget ? null : id}); }   // klik lagi = batal
+$("d-sel").onchange = () => send({cmd:"drop_target", id: $("d-sel").value ? parseInt($("d-sel").value) : null});
+$("d-cancel").onclick = () => send({cmd:"drop_target", id: null});
+["d-delay","d-carry","d-tol"].forEach(id => {
+  $(id).oninput = () => { clearTimeout(dropTimer); dropTimer = setTimeout(() => send({cmd:"drop_set",
+    delay_s: parseFloat($("d-delay").value), carry: parseFloat($("d-carry").value), tol_m: parseFloat($("d-tol").value)}), 300); };
+});
+
+// peta: garis drone -> objek (jarak), garis drone -> titik rilis, lingkaran toleransi, titik jatuh prediksi
+const dropLayer = L.layerGroup();
+const dropLine = L.polyline([], {color:"#ff5c5c", weight:3, dashArray:"8 6"}).addTo(dropLayer);
+const distTip = L.tooltip({permanent:true, direction:"center", className:"drop-tip"}).setLatLng([0,0]).setContent("-").addTo(dropLayer);
+const relLine = L.polyline([], {color:"#3ddc84", weight:2, opacity:.9}).addTo(dropLayer);
+const tolCircle = L.circle([0,0], {radius:3, color:"#ff5c5c", weight:2, fillOpacity:.12}).addTo(dropLayer);
+const relMarker = L.circleMarker([0,0], {radius:7, color:"#fff", weight:2, fillColor:"#3ddc84", fillOpacity:1}).addTo(dropLayer)
+  .bindTooltip("Titik rilis: drop saat drone di sini", {direction:"top"});
+const impMarker = L.circleMarker([0,0], {radius:6, color:"#ffb020", weight:2, fill:false, dashArray:"3 3"}).addTo(dropLayer)
+  .bindTooltip("Titik jatuh kalau di-drop sekarang", {direction:"top"});
+
+const DROP_ST = {
+  ready: "✅ DROP SEKARANG — titik jatuh dalam toleransi",
+  approach: "➡ Menuju titik rilis",
+  offtrack: "↔ Belum segaris dengan titik rilis — koreksi arah",
+  passed: "↩ Titik rilis terlewat — putar balik",
+  noalt: "Ketinggian tidak valid — lead belum bisa dihitung",
+};
+const setTxt = (id, v, d=1) => $(id).textContent = fmt(v, d);
+
+function renderDrop(dr, pose){
+  if (!dr) return;
+  if (!dropSynced) { $("d-delay").value = dr.delay_s; $("d-carry").value = dr.carry; $("d-tol").value = dr.tol_m; dropSynced = true; }
+  dropTarget = dr.target_id;
+
+  // pilihan sasaran = objek terlacak yang sudah berlokasi
+  const tracks = (lastTracks || []).filter(t => t.lat !== null);
+  const key = tracks.map(t => t.id + t.label).join(",");
+  if (key !== dropOptsKey) {
+    dropOptsKey = key;
+    $("d-sel").innerHTML = '<option value="">— pilih objek —</option>' + tracks.map(t => `<option value="${t.id}">#${t.id} ${t.label}</option>`).join("");
+  }
+  if (document.activeElement !== $("d-sel")) $("d-sel").value = dropTarget ?? "";
+  $("d-cancel").disabled = dropTarget === null;
+
+  const p = dr.plan;
+  $("d-empty").hidden = dropTarget !== null;
+  $("d-body").hidden = dropTarget === null;
+  if (dropTarget === null || !p) { map.removeLayer(dropLayer); return; }
+
+  const st = $("d-st");
+  st.className = "drop-st " + (p.ok ? p.status : "nogps");
+  st.textContent = p.ok ? DROP_ST[p.status] : p.reason;
+  $("d-tgt").textContent = `#${dr.target.id} ${dr.target.label}`;
+  setTxt("d-dist", p.dist_m); setTxt("d-slant", p.slant_m); setTxt("d-brg", p.bearing, 0); setTxt("d-course", p.course, 0);
+  setTxt("d-miss", p.miss_m); setTxt("d-eta", p.eta_s); setTxt("d-lead", p.lead_m); setTxt("d-tfall", p.t_fall, 2); setTxt("d-alt", p.alt);
+  setTxt("d-along", p.along_m);
+  $("d-cross").textContent = p.cross_m == null ? "-" : `${Math.abs(p.cross_m).toFixed(1)} ${p.cross_m >= 0 ? "kanan" : "kiri"}`;
+
+  if (!p.ok || pose.lat == null) { map.removeLayer(dropLayer); return; }
+  const drone = [pose.lat, pose.lon], tgt = [dr.target.lat, dr.target.lon];
+  dropLine.setLatLngs([drone, tgt]);
+  distTip.setLatLng([(drone[0] + tgt[0]) / 2, (drone[1] + tgt[1]) / 2]).setContent(`${p.dist_m.toFixed(1)} m`);
+  tolCircle.setLatLng(tgt).setRadius(dr.tol_m);
+  tolCircle.setStyle({color: p.status === "ready" ? "#3ddc84" : "#ff5c5c"});
+  if (p.release) {
+    relLine.setLatLngs([drone, p.release]); relMarker.setLatLng(p.release);
+    impMarker.setLatLng(p.impact);
+    [relLine, relMarker, impMarker].forEach(l => dropLayer.hasLayer(l) || dropLayer.addLayer(l));
+  } else [relLine, relMarker, impMarker].forEach(l => dropLayer.removeLayer(l));
+  if (!map.hasLayer(dropLayer)) map.addLayer(dropLayer);
 }
 
 let lastConn = null;
@@ -562,6 +687,8 @@ function render(s){
 
   renderModel(s.model);
   renderGeo(s.geo || {}, s.model.detections || []);
+  lastTracks = s.tracks ? s.tracks.tracks : [];
+  renderDrop(s.drop, (s.geo || {}).pose || {});   // sebelum renderTracks: tabel menandai sasaran
   renderTracks(s.tracks);
   renderRec(s.rec);
   renderView(s.view);
