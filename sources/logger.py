@@ -106,7 +106,8 @@ def estimate_rows(dets, geo_state, now):
     return rows
 
 
-TRACKS_HEADER = ["id", "label", "status", "lat", "lon", "last_lat", "last_lon", "hits", "max_conf",
+# lat/lon = posisi terkini objek, first_lat/first_lon = lokasi pertama kali terestimasi
+TRACKS_HEADER = ["id", "label", "status", "lat", "lon", "first_lat", "first_lon", "hits", "max_conf",
                  "moved_m", "max_moved_m", "first_seen", "last_seen", "located_at"]
 
 
@@ -114,7 +115,7 @@ def tracks_rows(snapshot):
     rows = []
     for t in snapshot.get("tracks", []):
         rows.append([t["id"], t["label"], "terlihat" if t["status"] == "seen" else "terkunci",
-                     _f(t["lat"], 7), _f(t["lon"], 7), _f(t["last_lat"], 7), _f(t["last_lon"], 7),
+                     _f(t["lat"], 7), _f(t["lon"], 7), _f(t["first_lat"], 7), _f(t["first_lon"], 7),
                      t["hits"], t["max_conf"], t["moved_m"], t["max_moved_m"],
                      iso(t["first_seen"]) if t["first_seen"] else "",
                      iso(t["last_seen"]) if t["last_seen"] else "",
